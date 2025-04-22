@@ -136,7 +136,7 @@ export default function TermsPage() {
               <div className="space-y-4">
                 <h2 className="text-2xl font-bold">9. Contact Us</h2>
                 <p className="text-gray-500 dark:text-gray-400">
-                  If you have any questions about these Terms, please contact us at terms@vartasetu.example.com.
+                  If you have any questions about these Terms, please contact us at vartasetu@outlook.com.
                 </p>
               </div>
             </div>
@@ -154,6 +154,9 @@ export default function TermsPage() {
               Privacy Policy
             </Link>
           </div>
+        </div>
+        <div className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+          Made in India 🇮🇳
         </div>
       </footer>
     </div>

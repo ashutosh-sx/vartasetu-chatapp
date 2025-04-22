@@ -131,7 +131,7 @@ export default function PrivacyPolicyPage() {
                 <h2 className="text-2xl font-bold">Contact Us</h2>
                 <p className="text-gray-500 dark:text-gray-400">
                   If you have any questions about our Privacy Policy, please contact us at
-                  privacy@vartasetu.example.com.
+                  vartasetu@outlook.com.
                 </p>
               </div>
             </div>

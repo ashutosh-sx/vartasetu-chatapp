@@ -1,7 +1,7 @@
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { ArrowLeft } from "lucide-react"
-import Image from "next/image"
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
+import Image from "next/image";
 
 export default function AboutPage() {
   return (
@@ -47,9 +47,11 @@ export default function AboutPage() {
                 </Button>
               </Link>
               <div className="space-y-2">
-                <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">About VartaSetu</h1>
-                <p className="mx-auto max-w-[700px] text-gray-500 md:text-xl dark:text-gray-400">
-                  Our mission is to create the most intuitive and reliable messaging platform for everyone.
+                <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
+                  This website is developed by Ashutosh Saxena - Information Science student.
+                </h1>
+                <p className="text-sm text-gray-500 mt-1">
+                  Made in India 🇮🇳
                 </p>
               </div>
             </div>
@@ -57,13 +59,13 @@ export default function AboutPage() {
               <div className="space-y-4">
                 <h2 className="text-2xl font-bold">Our Story</h2>
                 <p className="text-gray-500 dark:text-gray-400">
-                  VartaSetu was founded in 2023 with a simple goal: to make communication easier and more enjoyable. We
-                  believe that staying connected should be effortless, regardless of where you are in the world.
+                  VartaSetu was founded on 12th April 2025 with a simple goal: to make communication easier and more enjoyable. 
+                  I believe that staying connected should be effortless, regardless of where you are in the world.
                 </p>
                 <p className="text-gray-500 dark:text-gray-400">
-                  Our team of passionate developers and designers work tirelessly to create a messaging experience
-                  that's both powerful and intuitive. We're constantly innovating and improving our platform based on
-                  user feedback and emerging technologies.
+                  As the sole developer and designer, I have worked tirelessly to create a messaging experience that's both powerful and intuitive.
+                  VartaSetu was developed as a major project by me, Ashutosh Saxena, during the 3rd year of my Information Science Engineering degree. 
+                  I am constantly innovating and improving this platform based on user feedback and emerging technologies.
                 </p>
               </div>
               <div className="space-y-4">
@@ -87,7 +89,7 @@ export default function AboutPage() {
                       </svg>
                     </div>
                     <div>
-                      <strong>Privacy First:</strong> We believe your conversations should remain private and secure.
+                      <strong>Privacy First:</strong> I believe your conversations should remain private and secure.
                     </div>
                   </li>
                   <li className="flex items-start gap-2">
@@ -150,37 +152,10 @@ export default function AboutPage() {
                       </svg>
                     </div>
                     <div>
-                      <strong>Inclusivity:</strong> Our platform is designed for everyone, regardless of technical
-                      ability.
+                      <strong>Inclusivity:</strong> My platform is designed for everyone, regardless of technical ability.
                     </div>
                   </li>
                 </ul>
-              </div>
-            </div>
-            <div className="mx-auto max-w-5xl space-y-4 py-12">
-              <h2 className="text-2xl font-bold">Meet the Team</h2>
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="flex flex-col items-center space-y-2 rounded-lg border p-6 shadow-sm">
-                  <Avatar className="h-20 w-20">
-                    <AvatarFallback>JD</AvatarFallback>
-                  </Avatar>
-                  <h3 className="text-xl font-bold">Jane Doe</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Founder & CEO</p>
-                </div>
-                <div className="flex flex-col items-center space-y-2 rounded-lg border p-6 shadow-sm">
-                  <Avatar className="h-20 w-20">
-                    <AvatarFallback>JS</AvatarFallback>
-                  </Avatar>
-                  <h3 className="text-xl font-bold">John Smith</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">CTO</p>
-                </div>
-                <div className="flex flex-col items-center space-y-2 rounded-lg border p-6 shadow-sm">
-                  <Avatar className="h-20 w-20">
-                    <AvatarFallback>AL</AvatarFallback>
-                  </Avatar>
-                  <h3 className="text-xl font-bold">Alex Lee</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Lead Designer</p>
-                </div>
               </div>
             </div>
           </div>
@@ -188,7 +163,9 @@ export default function AboutPage() {
       </main>
       <footer className="w-full border-t py-6">
         <div className="container flex flex-col items-center justify-center gap-4 md:flex-row md:gap-8">
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400">© 2025 VartaSetu. All rights reserved.</p>
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+            © 2025 VartaSetu. All rights reserved.
+          </p>
           <div className="flex gap-4">
             <Link href="/terms" className="text-sm text-gray-500 hover:underline dark:text-gray-400">
               Terms of Service
@@ -200,7 +177,5 @@ export default function AboutPage() {
         </div>
       </footer>
     </div>
-  )
+  );
 }
-
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
