@@ -20,6 +20,7 @@ interface SettingsDialogProps {
   setNotifications: (notifications: boolean) => void
   userStatus: string
   setUserStatus: (status: string) => void
+  onUserUpdate?: (updatedUser: any) => void
 }
 
 export function SettingsDialog({
@@ -32,6 +33,7 @@ export function SettingsDialog({
   setNotifications,
   userStatus,
   setUserStatus,
+  onUserUpdate,
 }: SettingsDialogProps) {
   const { toast } = useToast()
   const [name, setName] = useState(user?.name || "")
@@ -48,40 +50,54 @@ export function SettingsDialog({
     }
   }, [user])
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     if (!user) return
 
-    // Update user in localStorage
-    const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-    const updatedUsers = allUsers.map((u: any) => {
-      if (u.id === user.id) {
-        return { ...u, name, email }
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateProfile",
+          userId: user.id,
+          name,
+          email,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        // Update current user locally
+        const updatedUser = { ...user, name, email }
+        localStorage.setItem("user", JSON.stringify(updatedUser))
+
+        if (onUserUpdate) {
+          onUserUpdate(updatedUser)
+        }
+
+        toast({
+          title: "Profile updated",
+          description: "Your profile has been updated successfully",
+        })
+      } else {
+        toast({
+          title: "Error updating profile",
+          description: data.error || "An error occurred",
+          variant: "destructive",
+        })
       }
-      return u
-    })
-    localStorage.setItem("allUsers", JSON.stringify(updatedUsers))
-
-    // Update current user
-    const updatedUser = { ...user, name, email }
-    localStorage.setItem("user", JSON.stringify(updatedUser))
-
-    // Update contacts to reflect name change
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-    const updatedContacts = allContacts.map((contact: any) => {
-      if (contact.contactId === user.id) {
-        return { ...contact, name }
-      }
-      return contact
-    })
-    localStorage.setItem("allContacts", JSON.stringify(updatedContacts))
-
-    toast({
-      title: "Profile updated",
-      description: "Your profile has been updated successfully",
-    })
+    } catch (err: any) {
+      console.error("Profile update error:", err)
+      toast({
+        title: "Error",
+        description: "Could not update profile. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!user) return
 
     // Validate passwords
@@ -89,18 +105,6 @@ export function SettingsDialog({
       toast({
         title: "Error",
         description: "Please fill in all password fields",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Check if current password is correct
-    const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-    const currentUser = allUsers.find((u: any) => u.id === user.id)
-    if (currentUser?.password !== currentPassword) {
-      toast({
-        title: "Error",
-        description: "Current password is incorrect",
         variant: "destructive",
       })
       return
@@ -116,28 +120,45 @@ export function SettingsDialog({
       return
     }
 
-    // Update password
-    const updatedUsers = allUsers.map((u: any) => {
-      if (u.id === user.id) {
-        return { ...u, password: newPassword }
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "changePassword",
+          userId: user.id,
+          currentPassword,
+          newPassword,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        // Clear password fields
+        setCurrentPassword("")
+        setNewPassword("")
+        setConfirmPassword("")
+
+        toast({
+          title: "Password updated",
+          description: "Your password has been changed successfully",
+        })
+      } else {
+        toast({
+          title: "Error changing password",
+          description: data.error || "An error occurred",
+          variant: "destructive",
+        })
       }
-      return u
-    })
-    localStorage.setItem("allUsers", JSON.stringify(updatedUsers))
-
-    // Update current user
-    const updatedUser = { ...user, password: newPassword }
-    localStorage.setItem("user", JSON.stringify(updatedUser))
-
-    // Clear password fields
-    setCurrentPassword("")
-    setNewPassword("")
-    setConfirmPassword("")
-
-    toast({
-      title: "Password updated",
-      description: "Your password has been changed successfully",
-    })
+    } catch (err: any) {
+      console.error("Password update error:", err)
+      toast({
+        title: "Error",
+        description: "Could not change password. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   const getInitials = (name: string) => {

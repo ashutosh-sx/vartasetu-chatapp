@@ -83,6 +83,7 @@ type Contact = {
   online: boolean
   avatar?: string
   typing?: boolean
+  lastSeen?: number | string
 }
 
 type MessageType = "text" | "image" | "video" | "audio" | "file"
@@ -183,6 +184,110 @@ export default function ChatPage() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const rtcConnectionRef = useRef<RTCConnection | null>(null)
   const callPollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const activeCallRef = useRef<Call | null>(null)
+
+  useEffect(() => {
+    activeCallRef.current = activeCall
+  }, [activeCall])
+
+  const syncData = async (userId: string) => {
+    try {
+      const contactsRes = await fetch(`/api/contacts?userId=${encodeURIComponent(userId)}`)
+      const contactsData = await contactsRes.json()
+      
+      const messagesRes = await fetch(`/api/messages?userId=${encodeURIComponent(userId)}`)
+      const messagesData = await messagesRes.json()
+      
+      const callsRes = await fetch(`/api/calls?userId=${encodeURIComponent(userId)}`)
+      const callsData = await callsRes.json()
+
+      if (contactsData.success) {
+        const allMsgList = messagesData.messages || []
+        const userContacts = contactsData.contacts || []
+        
+        const updatedContacts = userContacts.map((contact: Contact) => {
+          const contactMessages = allMsgList.filter(
+            (msg: Message) => msg.senderId === contact.contactId && msg.receiverId === userId && !msg.read,
+          )
+
+          const conversationMessages = allMsgList.filter(
+            (msg: Message) =>
+              (msg.senderId === contact.contactId && msg.receiverId === userId) ||
+              (msg.senderId === userId && msg.receiverId === contact.contactId),
+          )
+
+          const lastMsg =
+            conversationMessages.length > 0
+              ? [...conversationMessages].sort((a: Message, b: Message) => b.timestamp - a.timestamp)[0]
+              : null
+
+          return {
+            ...contact,
+            unread: contactMessages.length,
+            lastMessage: lastMsg
+              ? lastMsg.type === "text"
+                ? lastMsg.text
+                : `Sent ${lastMsg.type}`
+              : contact.lastMessage,
+            time: lastMsg ? formatTimeRelative(lastMsg.timestamp) : contact.time,
+          }
+        })
+
+        setContacts(updatedContacts)
+        setSentRequests(contactsData.sentRequests || [])
+        setReceivedRequests(contactsData.receivedRequests || [])
+        setBlockedContacts(contactsData.blockedContacts || [])
+      }
+
+      if (messagesData.success) {
+        setMessages(messagesData.messages || [])
+      }
+
+      if (callsData.success && callsData.calls) {
+        const incomingCall = callsData.calls.find((call: Call) => call.receiverId === userId && call.status === "ringing")
+        
+        if (incomingCall && !activeCallRef.current) {
+          setActiveCall(incomingCall)
+          setShowIncomingCall(true)
+
+          const audio = new Audio("/ringtone.mp3")
+          audio.loop = true
+          audio.play().catch((err) => console.error("Could not play ringtone:", err))
+          
+          const audioRef: { current: HTMLAudioElement | null } = { current: audio }
+          
+          const timeoutId = setTimeout(() => {
+            if (audioRef.current) {
+              audioRef.current.pause()
+              audioRef.current = null
+            }
+            handleDeclineCall(incomingCall.id)
+            setShowIncomingCall(false)
+          }, 30000)
+          
+          ;(window as any)._activeCallRingtoneCleanup = () => {
+            clearTimeout(timeoutId)
+            if (audioRef.current) {
+              audioRef.current.pause()
+              audioRef.current = null
+            }
+          }
+        } else if (activeCallRef.current) {
+          const dbCallState = callsData.calls.find((call: Call) => call.id === activeCallRef.current?.id)
+          if (!dbCallState || dbCallState.status === "ended" || dbCallState.status === "rejected") {
+            handleEndCallLocal()
+          } else if (activeCallRef.current.status === "ringing" && dbCallState.status === "ongoing" && dbCallState.answer) {
+            setActiveCall(dbCallState)
+            if (rtcConnectionRef.current && dbCallState.answer) {
+              rtcConnectionRef.current.setRemoteAnswer(dbCallState.answer)
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error in syncData:", err)
+    }
+  }
 
   // Check if user is logged in
   useEffect(() => {
@@ -198,71 +303,18 @@ export default function ChatPage() {
     setNotifications(parsedUser.notifications !== false)
     setUserStatus(parsedUser.status || "available")
 
-    // Load contacts from localStorage
-    loadContacts(parsedUser.id)
+    // Run initial sync
+    syncData(parsedUser.id)
 
-    // Set up message polling
+    // Set up message/presence/calls polling
     const intervalId = setInterval(() => {
       if (parsedUser) {
-        // Use the stored user ID directly instead of relying on state
-        const allMessages = JSON.parse(localStorage.getItem("allMessages") || "[]")
-        const userMessages = allMessages.filter(
-          (msg: Message) => msg.senderId === parsedUser.id || msg.receiverId === parsedUser.id,
-        )
-
-        // Only update if there are new messages
-        if (userMessages.length !== messages.length) {
-          setMessages(userMessages)
-
-          // Update contacts with unread counts
-          const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-          const userContacts = allContacts.filter(
-            (contact: Contact) => contact.userId === parsedUser.id && contact.status === "accepted",
-          )
-
-          // Calculate unread messages for each contact
-          const updatedContacts = userContacts.map((contact: Contact) => {
-            const contactMessages = allMessages.filter(
-              (msg: Message) => msg.senderId === contact.contactId && msg.receiverId === parsedUser.id && !msg.read,
-            )
-
-            // Get the last message
-            const conversationMessages = allMessages.filter(
-              (msg: Message) =>
-                (msg.senderId === contact.contactId && msg.receiverId === parsedUser.id) ||
-                (msg.senderId === parsedUser.id && msg.receiverId === contact.contactId),
-            )
-
-            const lastMsg =
-              conversationMessages.length > 0
-                ? conversationMessages.sort((a: Message, b: Message) => b.timestamp - a.timestamp)[0]
-                : null
-
-            return {
-              ...contact,
-              unread: contactMessages.length,
-              lastMessage: lastMsg
-                ? lastMsg.type === "text"
-                  ? lastMsg.text
-                  : `Sent ${lastMsg.type}`
-                : contact.lastMessage,
-              time: lastMsg ? formatTimeRelative(lastMsg.timestamp) : contact.time,
-            }
-          })
-
-          setContacts(updatedContacts)
-        }
-
-        // Check for new contact requests separately
-        loadContacts(parsedUser.id)
-
-        // Check for incoming calls
-        checkForIncomingCalls(parsedUser.id)
+        syncData(parsedUser.id)
       }
     }, 3000)
 
     return () => clearInterval(intervalId)
-  }, [router, messages])
+  }, [router])
 
   // Apply dark mode
   useEffect(() => {
@@ -272,17 +324,17 @@ export default function ChatPage() {
       document.documentElement.classList.remove("dark")
     }
 
-    // Save preference only if user exists and only when darkMode changes
     if (user) {
       const updatedUser = { ...user, darkMode }
       localStorage.setItem("user", JSON.stringify(updatedUser))
 
-      // Update in all users
-      const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-      const updatedAllUsers = allUsers.map((u: UserType) => (u.id === user.id ? { ...u, darkMode } : u))
-      localStorage.setItem("allUsers", JSON.stringify(updatedAllUsers))
+      fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "updateSettings", userId: user.id, darkMode }),
+      })
     }
-  }, [darkMode, user])
+  }, [darkMode])
 
   // Save notification preference
   useEffect(() => {
@@ -290,12 +342,13 @@ export default function ChatPage() {
       const updatedUser = { ...user, notifications }
       localStorage.setItem("user", JSON.stringify(updatedUser))
 
-      // Update in all users
-      const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-      const updatedAllUsers = allUsers.map((u: UserType) => (u.id === user.id ? { ...u, notifications } : u))
-      localStorage.setItem("allUsers", JSON.stringify(updatedAllUsers))
+      fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "updateSettings", userId: user.id, notifications }),
+      })
     }
-  }, [notifications, user])
+  }, [notifications])
 
   // Save user status
   useEffect(() => {
@@ -303,81 +356,28 @@ export default function ChatPage() {
       const updatedUser = { ...user, status: userStatus }
       localStorage.setItem("user", JSON.stringify(updatedUser))
 
-      // Update in all users
-      const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-      const updatedAllUsers = allUsers.map((u: UserType) => (u.id === user.id ? { ...u, status: userStatus } : u))
-      localStorage.setItem("allUsers", JSON.stringify(updatedAllUsers))
+      fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "updateSettings", userId: user.id, status: userStatus }),
+      })
     }
-  }, [userStatus, user])
-
-  // Check for incoming calls
-  const checkForIncomingCalls = (userId: string) => {
-    const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]") as Call[]
-
-    // Find any incoming calls for this user that are still ringing
-    const incomingCall = allCalls.find((call) => call.receiverId === userId && call.status === "ringing")
-
-    if (incomingCall && !activeCall) {
-      setActiveCall(incomingCall)
-      setShowIncomingCall(true)
-
-      // Play ringtone
-      const audio = new Audio("/ringtone.mp3")
-      audio.loop = true
-      audio.play().catch((err) => console.error("Could not play ringtone:", err))
-
-      // Store audio element to stop it later
-      const audioRef = { current: audio }
-
-      // Auto-decline call after 30 seconds if not answered
-      const timeoutId = setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.pause()
-          audioRef.current = null
-        }
-
-        handleDeclineCall(incomingCall.id)
-        setShowIncomingCall(false)
-      }, 30000)
-
-      // Clean up function
-      return () => {
-        clearTimeout(timeoutId)
-        if (audioRef.current) {
-          audioRef.current.pause()
-          audioRef.current = null
-        }
-      }
-    }
-  }
+  }, [userStatus])
 
   // Load contacts for the current user
-  const loadContacts = (userId: string) => {
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-
-    // Accepted contacts
-    const acceptedContacts = allContacts.filter(
-      (contact: Contact) => contact.userId === userId && contact.status === "accepted",
-    )
-    setContacts(acceptedContacts)
-
-    // Sent requests (requests sent by the current user)
-    const sentPendingContacts = allContacts.filter(
-      (contact: Contact) => contact.userId === userId && contact.status === "sent",
-    )
-    setSentRequests(sentPendingContacts)
-
-    // Received requests (requests received by the current user)
-    const receivedPendingContacts = allContacts.filter(
-      (contact: Contact) => contact.userId === userId && contact.status === "pending",
-    )
-    setReceivedRequests(receivedPendingContacts)
-
-    // Blocked contacts
-    const blockedContacts = allContacts.filter(
-      (contact: Contact) => contact.userId === userId && contact.status === "blocked",
-    )
-    setBlockedContacts(blockedContacts)
+  const loadContacts = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/contacts?userId=${encodeURIComponent(userId)}`)
+      const data = await res.json()
+      if (data.success) {
+        setContacts(data.contacts || [])
+        setSentRequests(data.sentRequests || [])
+        setReceivedRequests(data.receivedRequests || [])
+        setBlockedContacts(data.blockedContacts || [])
+      }
+    } catch (err) {
+      console.error("Failed to load contacts:", err)
+    }
   }
 
   // Scroll to bottom when messages change
@@ -396,49 +396,42 @@ export default function ChatPage() {
   // Mark messages as read when conversation is opened
   useEffect(() => {
     if (selectedContact && user) {
-      // Create a unique key for this conversation to track if we've already marked it as read
-      const conversationKey = `${user.id}_${selectedContact.contactId}_read`
-      const alreadyMarkedAsRead = sessionStorage.getItem(conversationKey)
-
-      // Only proceed if we haven't marked this conversation as read in this session
-      if (!alreadyMarkedAsRead) {
-        const allMessages = JSON.parse(localStorage.getItem("allMessages") || "[]")
-        let hasUnread = false
-
-        const updatedMessages = allMessages.map((msg: Message) => {
-          if (msg.senderId === selectedContact.contactId && msg.receiverId === user.id && !msg.read) {
-            hasUnread = true
-            return { ...msg, read: true }
-          }
-          return msg
-        })
-
-        if (hasUnread) {
-          localStorage.setItem("allMessages", JSON.stringify(updatedMessages))
-          setMessages(updatedMessages)
-
-          // Update contact unread count
-          const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-          const updatedContacts = allContacts.map((contact: Contact) => {
-            if (contact.userId === user.id && contact.contactId === selectedContact.contactId) {
-              return { ...contact, unread: 0 }
-            }
-            return contact
+      const markAsRead = async () => {
+        try {
+          const res = await fetch("/api/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "markRead",
+              senderId: selectedContact.contactId,
+              receiverId: user.id,
+            }),
           })
-
-          localStorage.setItem("allContacts", JSON.stringify(updatedContacts))
-
-          // Update local contacts state
-          setContacts((prevContacts) =>
-            prevContacts.map((contact) =>
-              contact.contactId === selectedContact.contactId ? { ...contact, unread: 0 } : contact,
-            ),
-          )
-
-          // Mark this conversation as read in this session
-          sessionStorage.setItem(conversationKey, "true")
+          const data = await res.json()
+          if (data.success) {
+            // Update local messages state
+            setMessages((prevMessages) =>
+              prevMessages.map((msg) =>
+                msg.senderId === selectedContact.contactId && msg.receiverId === user.id
+                  ? { ...msg, read: true }
+                  : msg
+              )
+            )
+            // Update local contacts state
+            setContacts((prevContacts) =>
+              prevContacts.map((contact) =>
+                contact.contactId === selectedContact.contactId
+                  ? { ...contact, unread: 0 }
+                  : contact
+              )
+            )
+          }
+        } catch (err) {
+          console.error("Failed to mark messages as read:", err)
         }
       }
+
+      markAsRead()
     }
   }, [selectedContact, user])
 
@@ -489,7 +482,7 @@ export default function ChatPage() {
         id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         senderId: user.id,
         receiverId: selectedContact.contactId,
-        text: type === "text" ? file.name : `Sent ${type}`,
+        text: `Sent ${type}`,
         timestamp: Date.now(),
         conversationId,
         read: false,
@@ -605,24 +598,26 @@ export default function ChatPage() {
 
       // Set up ICE candidate handler
       rtcConnection.onIceCandidate = (candidate) => {
-        // In a real app, we would send this to the other user via a signaling server
-        // For this demo, we'll store it in localStorage
-        const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]") as Call[]
-        const updatedCalls = allCalls.map((call) => {
-          if (call.id === newCall.id) {
-            return {
-              ...call,
-              iceCandidates: [...(call.iceCandidates || []), candidate],
-            }
-          }
-          return call
+        fetch("/api/calls", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "submitIce", callId: newCall.id, candidate }),
         })
-        localStorage.setItem("allCalls", JSON.stringify(updatedCalls))
       }
 
-      // Store call in localStorage
-      const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]")
-      localStorage.setItem("allCalls", JSON.stringify([...allCalls, newCall]))
+      // Store call in PostgreSQL database
+      await fetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start",
+          callId: newCall.id,
+          callerId: user.id,
+          receiverId: selectedContact.contactId,
+          type: isVideo ? "video" : "audio",
+          offer,
+        }),
+      })
 
       // Set active call
       setActiveCall(newCall)
@@ -678,48 +673,50 @@ export default function ChatPage() {
     }
 
     // Set up polling interval
-    callPollingIntervalRef.current = setInterval(() => {
-      const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]") as Call[]
-      const call = allCalls.find((c) => c.id === callId)
+    callPollingIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/calls?userId=${encodeURIComponent(user?.id || "")}`)
+        const data = await res.json()
+        if (!data.success || !data.calls) return
 
-      if (!call) {
-        // Call no longer exists
-        clearInterval(callPollingIntervalRef.current)
-        callPollingIntervalRef.current = null
-        return
-      }
+        const call = data.calls.find((c: Call) => c.id === callId)
 
-      // Check if call status has changed
-      if (call.status !== activeCall?.status) {
-        setActiveCall(call)
-
-        // If call was rejected or ended, clean up
-        if (call.status === "rejected" || call.status === "ended" || call.status === "missed") {
-          handleEndCall()
+        if (!call) {
+          handleEndCallLocal()
+          return
         }
-      }
 
-      // If we're the caller, check for answer
-      if (call.callerId === user?.id && call.answer && rtcConnectionRef.current) {
-        // Set remote answer
-        rtcConnectionRef.current.setRemoteAnswer(call.answer)
+        // Check if call status has changed
+        if (call.status !== activeCallRef.current?.status) {
+          setActiveCall(call)
 
-        // Process any ICE candidates from the other user
-        if (call.iceCandidates) {
-          call.iceCandidates.forEach((candidate) => {
-            rtcConnectionRef.current?.addIceCandidate(candidate)
-          })
+          // If call was rejected or ended, clean up
+          if (call.status === "rejected" || call.status === "ended" || call.status === "missed") {
+            handleEndCallLocal()
+          }
         }
-      }
 
-      // If we're the receiver, check for ICE candidates
-      if (call.receiverId === user?.id && rtcConnectionRef.current) {
-        // Process any ICE candidates from the other user
-        if (call.iceCandidates) {
-          call.iceCandidates.forEach((candidate) => {
-            rtcConnectionRef.current?.addIceCandidate(candidate)
-          })
+        // If we're the caller, check for answer
+        if (call.callerId === user?.id && call.answer && rtcConnectionRef.current) {
+          rtcConnectionRef.current.setRemoteAnswer(call.answer)
+
+          if (call.iceCandidates) {
+            call.iceCandidates.forEach((candidate: RTCIceCandidate) => {
+              rtcConnectionRef.current?.addIceCandidate(candidate)
+            })
+          }
         }
+
+        // If we're the receiver, check for ICE candidates
+        if (call.receiverId === user?.id && rtcConnectionRef.current) {
+          if (call.iceCandidates) {
+            call.iceCandidates.forEach((candidate: RTCIceCandidate) => {
+              rtcConnectionRef.current?.addIceCandidate(candidate)
+            })
+          }
+        }
+      } catch (err) {
+        console.error("Error in call polling:", err)
       }
     }, 1000)
   }
@@ -729,7 +726,6 @@ export default function ChatPage() {
     if (!activeCall || !user) return
 
     try {
-      // Request permissions with a clear message to the user
       toast({
         title: "Permission Request",
         description: `Please allow access to your ${activeCall.type === "video" ? "camera and microphone" : "microphone"} to continue.`,
@@ -746,73 +742,56 @@ export default function ChatPage() {
         throw new Error(error || "Could not access media devices")
       }
 
-      // Set local stream
       setLocalStream(stream)
 
-      // Create RTC connection
       const rtcConnection = new RTCConnection()
       rtcConnectionRef.current = rtcConnection
 
-      // Add local stream to connection
       await rtcConnection.addLocalStream(stream)
 
-      // Set up remote stream handler
       rtcConnection.onRemoteStreamChange = (stream) => {
         setRemoteStream(stream)
       }
 
-      // Set up ICE candidate handler
       rtcConnection.onIceCandidate = (candidate) => {
-        // In a real app, we would send this to the other user via a signaling server
-        // For this demo, we'll store it in localStorage
-        const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]") as Call[]
-        const updatedCalls = allCalls.map((call) => {
-          if (call.id === activeCall.id) {
-            return {
-              ...call,
-              iceCandidates: [...(call.iceCandidates || []), candidate],
-            }
-          }
-          return call
+        fetch("/api/calls", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "submitIce", callId: activeCall.id, candidate }),
         })
-        localStorage.setItem("allCalls", JSON.stringify(updatedCalls))
       }
 
-      // Create answer
+      if (!activeCall.offer) {
+        throw new Error("No offer provided on call")
+      }
+
       const answer = await rtcConnection.createAnswer(activeCall.offer)
 
       if (!answer) {
         throw new Error("Could not create answer")
       }
 
-      // Update call in localStorage
-      const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]") as Call[]
-      const updatedCalls = allCalls.map((call) => {
-        if (call.id === activeCall.id) {
-          return {
-            ...call,
-            status: "ongoing",
-            answer,
-          }
-        }
-        return call
+      await fetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "answer",
+          callId: activeCall.id,
+          answer,
+        }),
       })
-      localStorage.setItem("allCalls", JSON.stringify(updatedCalls))
 
-      // Update active call
       setActiveCall({
         ...activeCall,
         status: "ongoing",
         answer,
       })
 
-      // Hide incoming call notification and show call interface
       setShowIncomingCall(false)
       setShowCallInterface(true)
 
-      // Start polling for updates
       startCallPolling(activeCall.id)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error accepting call:", error)
 
       let errorMessage = "Could not accept call. Please check your camera and microphone permissions."
@@ -827,72 +806,31 @@ export default function ChatPage() {
         variant: "destructive",
       })
 
-      // Clean up
       handleDeclineCall(activeCall.id)
     }
   }
 
   // Handle declining a call
-  const handleDeclineCall = (callId: string) => {
-    // Update call in localStorage
-    const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]") as Call[]
-    const updatedCalls = allCalls.map((call) => {
-      if (call.id === callId) {
-        return {
-          ...call,
-          status: "rejected",
-          endTime: Date.now(),
-        }
-      }
-      return call
-    })
-    localStorage.setItem("allCalls", JSON.stringify(updatedCalls))
-
-    // Hide incoming call notification
-    setShowIncomingCall(false)
-    setActiveCall(null)
-
-    // Clean up
-    if (localStream) {
-      localStream.getTracks().forEach((track) => track.stop())
-      setLocalStream(null)
+  const handleDeclineCall = async (callId: string) => {
+    try {
+      await fetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject", callId }),
+      })
+    } catch (err) {
+      console.error("Failed to decline call:", err)
     }
 
-    if (rtcConnectionRef.current) {
-      rtcConnectionRef.current.closeConnection()
-      rtcConnectionRef.current = null
-    }
-
-    // Clear polling interval
-    if (callPollingIntervalRef.current) {
-      clearInterval(callPollingIntervalRef.current)
-      callPollingIntervalRef.current = null
-    }
+    handleEndCallLocal()
   }
 
-  // Handle ending a call
-  const handleEndCall = () => {
-    if (!activeCall) return
-
-    // Update call in localStorage
-    const allCalls = JSON.parse(localStorage.getItem("allCalls") || "[]") as Call[]
-    const updatedCalls = allCalls.map((call) => {
-      if (call.id === activeCall.id) {
-        return {
-          ...call,
-          status: "ended",
-          endTime: Date.now(),
-        }
-      }
-      return call
-    })
-    localStorage.setItem("allCalls", JSON.stringify(updatedCalls))
-
-    // Hide call interface
+  // Handle ending a call locally
+  const handleEndCallLocal = () => {
+    setShowIncomingCall(false)
     setShowCallInterface(false)
     setActiveCall(null)
 
-    // Clean up
     if (localStream) {
       localStream.getTracks().forEach((track) => track.stop())
       setLocalStream(null)
@@ -908,22 +846,48 @@ export default function ChatPage() {
       rtcConnectionRef.current = null
     }
 
-    // Clear polling interval
     if (callPollingIntervalRef.current) {
       clearInterval(callPollingIntervalRef.current)
       callPollingIntervalRef.current = null
     }
+
+    // Call ringtone cleanup if active
+    if ((window as any)._activeCallRingtoneCleanup) {
+      (window as any)._activeCallRingtoneCleanup()
+      delete (window as any)._activeCallRingtoneCleanup
+    }
+  }
+
+  // Handle ending a call
+  const handleEndCall = async () => {
+    if (!activeCall) return
+
+    try {
+      await fetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "end", callId: activeCall.id }),
+      })
+    } catch (err) {
+      console.error("Failed to end call in DB:", err)
+    }
+
+    handleEndCallLocal()
   }
 
   // Update the handleLogout function in the chat page
-  const handleLogout = () => {
+  const handleLogout = async () => {
     // Set user as offline
     if (user) {
-      const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-      const updatedUsers = allUsers.map((u: UserType) =>
-        u.id === user.id ? { ...u, online: false, lastSeen: Date.now() } : u,
-      )
-      localStorage.setItem("allUsers", JSON.stringify(updatedUsers))
+      try {
+        await fetch("/api/contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "updateSettings", userId: user.id, online: false }),
+        })
+      } catch (err) {
+        console.error("Failed to set user offline during logout:", err)
+      }
     }
 
     // Clear user from localStorage
@@ -933,15 +897,16 @@ export default function ChatPage() {
     router.push("/login")
   }
 
-  const handleAddContact = () => {
+  const handleAddContact = async () => {
     if (!newContactEmail.trim() || !newContactEmail.includes("@") || !user) return
 
     // Check if contact already exists
+    const normalizedEmail = newContactEmail.trim().toLowerCase()
     if (
-      contacts.some((contact) => contact.email === newContactEmail) ||
-      sentRequests.some((contact) => contact.email === newContactEmail) ||
-      receivedRequests.some((contact) => contact.email === newContactEmail) ||
-      blockedContacts.some((contact) => contact.email === newContactEmail)
+      contacts.some((contact) => contact.email.toLowerCase() === normalizedEmail) ||
+      sentRequests.some((contact) => contact.email.toLowerCase() === normalizedEmail) ||
+      receivedRequests.some((contact) => contact.email.toLowerCase() === normalizedEmail) ||
+      blockedContacts.some((contact) => contact.email.toLowerCase() === normalizedEmail)
     ) {
       toast({
         title: "Contact already exists",
@@ -951,304 +916,263 @@ export default function ChatPage() {
       return
     }
 
-    // Check if user exists in the system
-    const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-    const contactUser = allUsers.find((u: UserType) => u.email === newContactEmail)
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add",
+          userId: user.id,
+          email: normalizedEmail,
+        }),
+      })
 
-    if (!contactUser) {
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: "Contact request sent",
+          description: `A request has been sent to ${newContactEmail}`,
+        })
+        setNewContactEmail("")
+        setShowAddContact(false)
+        loadContacts(user.id)
+      } else {
+        toast({
+          title: "Failed to add contact",
+          description: data.error || "An error occurred",
+          variant: "destructive",
+        })
+      }
+    } catch (err: any) {
+      console.error("Error adding contact:", err)
       toast({
-        title: "User not found",
-        description: "No user with this email address exists. Invite them to join VartaSetu!",
+        title: "Error",
+        description: "Could not add contact. Please try again.",
         variant: "destructive",
       })
-      return
     }
+  }
 
-    // Don't allow adding yourself
-    if (contactUser.id === user.id) {
-      toast({
-        title: "Invalid contact",
-        description: "You cannot add yourself as a contact",
-        variant: "destructive",
+  const handleAcceptContact = async (contactId: string) => {
+    if (!user) return
+
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "accept",
+          userId: user.id,
+          contactId,
+        }),
       })
-      return
-    }
 
-    // Create new contact request for current user (sender)
-    const newContact: Contact = {
-      id: `contact_${Date.now()}`,
-      userId: user.id,
-      contactId: contactUser.id,
-      name: contactUser.name,
-      email: newContactEmail,
-      status: "sent", // Sent by current user
-      lastMessage: "",
-      time: "New",
-      unread: 0,
-      online: contactUser.online || false,
-      avatar: contactUser.avatar || "/default-avatar.png",
-    }
+      const data = await res.json()
 
-    // Create reciprocal contact for the other user (receiver)
-    const reciprocalContact: Contact = {
-      id: `contact_${Date.now() + 1}`,
-      userId: contactUser.id,
-      contactId: user.id,
-      name: user.name,
-      email: user.email,
-      status: "pending", // Pending for the receiver
-      lastMessage: "Sent you a contact request",
-      time: "Just now",
-      unread: 1, // Notification for new request
-      online: user.online || false,
-      avatar: user.avatar || "/default-avatar.png",
-    }
-
-    // Add to contacts in localStorage
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-    const updatedContacts = [...allContacts, newContact, reciprocalContact]
-    localStorage.setItem("allContacts", JSON.stringify(updatedContacts))
-
-    // Update local state
-    setSentRequests([...sentRequests, newContact])
-    setNewContactEmail("")
-    setShowAddContact(false)
-
-    toast({
-      title: "Contact request sent",
-      description: `A request has been sent to ${contactUser.name}`,
-    })
-  }
-
-  const handleAcceptContact = (contactId: string) => {
-    if (!user) return
-
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-
-    // Find the pending contact
-    const pendingContact = receivedRequests.find((c) => c.contactId === contactId)
-    if (!pendingContact) return
-
-    // Update status to accepted for both users
-    const updatedAllContacts = allContacts.map((contact: Contact) => {
-      // Update current user's contact (receiver)
-      if (contact.userId === user.id && contact.contactId === contactId) {
-        return { ...contact, status: "accepted" }
+      if (data.success) {
+        toast({
+          title: "Contact accepted",
+          description: "Contact has been added to your contacts",
+        })
+        loadContacts(user.id)
+      } else {
+        toast({
+          title: "Failed to accept contact",
+          description: data.error || "An error occurred",
+          variant: "destructive",
+        })
       }
-
-      // Update the other user's reciprocal contact (sender)
-      if (contact.userId === contactId && contact.contactId === user.id) {
-        return { ...contact, status: "accepted" }
-      }
-
-      return contact
-    })
-
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local state
-    const acceptedContact = { ...pendingContact, status: "accepted" }
-    setContacts([...contacts, acceptedContact])
-    setReceivedRequests(receivedRequests.filter((c) => c.contactId !== contactId))
-
-    toast({
-      title: "Contact accepted",
-      description: `${pendingContact.name} has been added to your contacts`,
-    })
-  }
-
-  const handleRejectContact = (contactId: string) => {
-    if (!user) return
-
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-
-    // Find the pending contact
-    const pendingContact = receivedRequests.find((c) => c.contactId === contactId)
-    if (!pendingContact) return
-
-    // Remove contact requests for both users
-    const updatedAllContacts = allContacts.filter(
-      (contact: Contact) =>
-        !(contact.userId === user.id && contact.contactId === contactId) &&
-        !(contact.userId === contactId && contact.contactId === user.id),
-    )
-
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local state
-    setReceivedRequests(receivedRequests.filter((c) => c.contactId !== contactId))
-
-    toast({
-      title: "Contact rejected",
-      description: `Request from ${pendingContact.name} has been rejected`,
-    })
-  }
-
-  const handleCancelRequest = (contactId: string) => {
-    if (!user) return
-
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-
-    // Find the sent request
-    const sentRequest = sentRequests.find((c) => c.contactId === contactId)
-    if (!sentRequest) return
-
-    // Remove contact requests for both users
-    const updatedAllContacts = allContacts.filter(
-      (contact: Contact) =>
-        !(contact.userId === user.id && contact.contactId === contactId) &&
-        !(contact.userId === contactId && contact.contactId === user.id),
-    )
-
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local state
-    setSentRequests(sentRequests.filter((c) => c.contactId !== contactId))
-
-    toast({
-      title: "Request canceled",
-      description: `Your request to ${sentRequest.name} has been canceled`,
-    })
-  }
-
-  const handleBlockContact = (contactId: string) => {
-    if (!user) return
-
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-
-    // Find the contact in any list
-    const contactToBlock =
-      contacts.find((c) => c.contactId === contactId) ||
-      receivedRequests.find((c) => c.contactId === contactId) ||
-      sentRequests.find((c) => c.contactId === contactId)
-
-    if (!contactToBlock) return
-
-    // Update status to blocked for current user
-    const updatedAllContacts = allContacts.map((contact: Contact) => {
-      if (contact.userId === user.id && contact.contactId === contactId) {
-        return { ...contact, status: "blocked" }
-      }
-      return contact
-    })
-
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local state
-    const blockedContact = { ...contactToBlock, status: "blocked" }
-    setBlockedContacts([...blockedContacts, blockedContact])
-
-    // Remove from other lists
-    setContacts(contacts.filter((c) => c.contactId !== contactId))
-    setReceivedRequests(receivedRequests.filter((c) => c.contactId !== contactId))
-    setSentRequests(sentRequests.filter((c) => c.contactId !== contactId))
-
-    // If this contact was selected, deselect it
-    if (selectedContact && selectedContact.contactId === contactId) {
-      setSelectedContact(null)
+    } catch (err: any) {
+      console.error("Error accepting contact:", err)
     }
-
-    toast({
-      title: "Contact blocked",
-      description: `${contactToBlock.name} has been blocked`,
-    })
   }
 
-  const handleUnblockContact = (contactId: string) => {
+  const handleRejectContact = async (contactId: string) => {
     if (!user) return
 
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reject",
+          userId: user.id,
+          contactId,
+        }),
+      })
 
-    // Find the blocked contact
-    const blockedContact = blockedContacts.find((c) => c.contactId === contactId)
-    if (!blockedContact) return
+      const data = await res.json()
 
-    // Update status to accepted
-    const updatedAllContacts = allContacts.map((contact: Contact) => {
-      if (contact.userId === user.id && contact.contactId === contactId) {
-        return { ...contact, status: "accepted" }
+      if (data.success) {
+        toast({
+          title: "Contact rejected",
+          description: "Request has been rejected",
+        })
+        loadContacts(user.id)
       }
-      return contact
-    })
-
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local state
-    const unblockedContact = { ...blockedContact, status: "accepted" }
-    setContacts([...contacts, unblockedContact])
-    setBlockedContacts(blockedContacts.filter((c) => c.contactId !== contactId))
-
-    toast({
-      title: "Contact unblocked",
-      description: `${blockedContact.name} has been unblocked`,
-    })
+    } catch (err: any) {
+      console.error("Error rejecting contact:", err)
+    }
   }
 
-  const handleDeleteContact = () => {
+  const handleCancelRequest = async (contactId: string) => {
+    if (!user) return
+
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          userId: user.id,
+          contactId,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: "Request canceled",
+          description: "Your request has been canceled",
+        })
+        loadContacts(user.id)
+      }
+    } catch (err: any) {
+      console.error("Error canceling request:", err)
+    }
+  }
+
+  const handleBlockContact = async (contactId: string) => {
+    if (!user) return
+
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "block",
+          userId: user.id,
+          contactId,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: "Contact blocked",
+          description: "Contact has been blocked",
+        })
+        if (selectedContact && selectedContact.contactId === contactId) {
+          setSelectedContact(null)
+        }
+        loadContacts(user.id)
+      }
+    } catch (err: any) {
+      console.error("Error blocking contact:", err)
+    }
+  }
+
+  const handleUnblockContact = async (contactId: string) => {
+    if (!user) return
+
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "unblock",
+          userId: user.id,
+          contactId,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: "Contact unblocked",
+          description: "Contact has been unblocked",
+        })
+        loadContacts(user.id)
+      }
+    } catch (err: any) {
+      console.error("Error unblocking contact:", err)
+    }
+  }
+
+  const handleDeleteContact = async () => {
     if (!user || !selectedContact) return
 
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          userId: user.id,
+          contactId: selectedContact.contactId,
+        }),
+      })
 
-    // Remove contact for current user only
-    const updatedAllContacts = allContacts.filter(
-      (contact: Contact) => !(contact.userId === user.id && contact.contactId === selectedContact.contactId),
-    )
+      const data = await res.json()
 
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local state
-    setContacts(contacts.filter((c) => c.contactId !== selectedContact.contactId))
-
-    // Deselect contact
-    setSelectedContact(null)
-    setShowDeleteContact(false)
-
-    toast({
-      title: "Contact deleted",
-      description: `${selectedContact.name} has been removed from your contacts`,
-    })
+      if (data.success) {
+        toast({
+          title: "Contact deleted",
+          description: `${selectedContact.name} has been removed from your contacts`,
+        })
+        setSelectedContact(null)
+        setShowDeleteContact(false)
+        loadContacts(user.id)
+      }
+    } catch (err: any) {
+      console.error("Error deleting contact:", err)
+    }
   }
 
-  const handleDeleteChat = () => {
+  const handleDeleteChat = async () => {
     if (!user || !selectedContact) return
 
-    const allMessages = JSON.parse(localStorage.getItem("allMessages") || "[]")
     const conversationId = getConversationId(user.id, selectedContact.contactId)
 
-    // Remove all messages in this conversation
-    const updatedAllMessages = allMessages.filter((msg: Message) => msg.conversationId !== conversationId)
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "clearHistory",
+          conversationId,
+        }),
+      })
 
-    localStorage.setItem("allMessages", JSON.stringify(updatedAllMessages))
+      const data = await res.json()
 
-    // Update local state
-    setMessages(updatedAllMessages)
+      if (data.success) {
+        // Update local state
+        setMessages((prevMessages) => prevMessages.filter((msg) => msg.conversationId !== conversationId))
 
-    // Update contact's last message
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-    const updatedAllContacts = allContacts.map((contact: Contact) => {
-      if (contact.userId === user.id && contact.contactId === selectedContact.contactId) {
-        return { ...contact, lastMessage: "", time: "No messages" }
+        // Update contact's last message locally
+        setContacts((prevContacts) =>
+          prevContacts.map((contact) =>
+            contact.contactId === selectedContact.contactId
+              ? { ...contact, lastMessage: "", time: "No messages" }
+              : contact,
+          ),
+        )
+
+        setShowDeleteChat(false)
+
+        toast({
+          title: "Chat deleted",
+          description: `Your conversation with ${selectedContact.name} has been deleted`,
+        })
       }
-      return contact
-    })
-
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local contacts state
-    setContacts(
-      contacts.map((contact) =>
-        contact.contactId === selectedContact.contactId
-          ? { ...contact, lastMessage: "", time: "No messages" }
-          : contact,
-      ),
-    )
-
-    setShowDeleteChat(false)
-
-    toast({
-      title: "Chat deleted",
-      description: `Your conversation with ${selectedContact.name} has been deleted`,
-    })
+    } catch (err: any) {
+      console.error("Error deleting chat:", err)
+    }
   }
 
   const handleEditMessage = (messageId: string) => {
@@ -1259,174 +1183,168 @@ export default function ChatPage() {
     }
   }
 
-  const saveEditedMessage = () => {
+  const saveEditedMessage = async () => {
     if (!editingMessage || !editedText.trim() || !user) return
 
-    const allMessages = JSON.parse(localStorage.getItem("allMessages") || "[]")
-    const updatedAllMessages = allMessages.map((msg: Message) =>
-      msg.id === editingMessage ? { ...msg, text: editedText, edited: true } : msg,
-    )
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "edit",
+          messageId: editingMessage,
+          text: editedText,
+        }),
+      })
 
-    localStorage.setItem("allMessages", JSON.stringify(updatedAllMessages))
+      const data = await res.json()
 
-    // Update local state
-    const updatedMessages = messages.map((msg) =>
-      msg.id === editingMessage ? { ...msg, text: editedText, edited: true } : msg,
-    )
-    setMessages(updatedMessages)
+      if (data.success) {
+        // Update local state
+        const updatedMessages = messages.map((msg) =>
+          msg.id === editingMessage ? { ...msg, text: editedText, edited: true } : msg,
+        )
+        setMessages(updatedMessages)
 
-    // Update contact's last message if this was the last message
-    if (selectedContact) {
-      const conversationId = getConversationId(user.id, selectedContact.contactId)
-      const conversationMessages = updatedMessages.filter((msg) => msg.conversationId === conversationId)
-      const sortedMessages = [...conversationMessages].sort((a, b) => b.timestamp - a.timestamp)
+        // Update contact's last message if this was the last message
+        if (selectedContact) {
+          const conversationId = getConversationId(user.id, selectedContact.contactId)
+          const conversationMessages = updatedMessages.filter((msg) => msg.conversationId === conversationId)
+          const sortedMessages = [...conversationMessages].sort((a, b) => b.timestamp - a.timestamp)
 
-      if (sortedMessages.length > 0 && sortedMessages[0].id === editingMessage) {
-        updateContactLastMessage(selectedContact.contactId, editedText)
+          if (sortedMessages.length > 0 && sortedMessages[0].id === editingMessage) {
+            updateContactLastMessage(selectedContact.contactId, editedText)
+          }
+        }
+
+        setEditingMessage(null)
+        setEditedText("")
       }
+    } catch (err: any) {
+      console.error("Error editing message:", err)
     }
-
-    setEditingMessage(null)
-    setEditedText("")
   }
 
   const handleDeleteMessage = (messageId: string) => {
     setShowDeleteConfirm(messageId)
   }
 
-  const confirmDeleteMessage = (messageId: string) => {
+  const confirmDeleteMessage = async (messageId: string) => {
     if (!user) return
 
-    // Remove from localStorage
-    const allMessages = JSON.parse(localStorage.getItem("allMessages") || "[]")
-    const messageToDelete = allMessages.find((msg: Message) => msg.id === messageId)
-    const updatedAllMessages = allMessages.filter((msg) => msg.id !== messageId)
-    localStorage.setItem("allMessages", JSON.stringify(updatedAllMessages))
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          messageId,
+        }),
+      })
 
-    // Update local state
-    const updatedMessages = messages.filter((msg) => msg.id !== messageId)
-    setMessages(updatedMessages)
+      const data = await res.json()
 
-    // Update contact's last message if this was the last message
-    if (selectedContact && messageToDelete) {
-      const conversationId = getConversationId(user.id, selectedContact.contactId)
-      const conversationMessages = updatedMessages.filter((msg) => msg.conversationId === conversationId)
-      const sortedMessages = [...conversationMessages].sort((a, b) => b.timestamp - a.timestamp)
+      if (data.success) {
+        const updatedMessages = messages.filter((msg) => msg.id !== messageId)
+        setMessages(updatedMessages)
 
-      if (sortedMessages.length > 0) {
-        updateContactLastMessage(selectedContact.contactId, sortedMessages[0].text)
-      } else {
-        updateContactLastMessage(selectedContact.contactId, "")
+        // Update contact's last message if this was the last message
+        if (selectedContact) {
+          const conversationId = getConversationId(user.id, selectedContact.contactId)
+          const conversationMessages = updatedMessages.filter((msg) => msg.conversationId === conversationId)
+          const sortedMessages = [...conversationMessages].sort((a, b) => b.timestamp - a.timestamp)
+
+          if (sortedMessages.length > 0) {
+            updateContactLastMessage(selectedContact.contactId, sortedMessages[0].text)
+          } else {
+            updateContactLastMessage(selectedContact.contactId, "")
+          }
+        }
+
+        setShowDeleteConfirm(null)
       }
+    } catch (err: any) {
+      console.error("Error deleting message:", err)
     }
-
-    setShowDeleteConfirm(null)
   }
 
-  const handleReactToMessage = (messageId: string, reaction: string) => {
+  const handleReactToMessage = async (messageId: string, reaction: string) => {
     if (!user) return
 
-    const allMessages = JSON.parse(localStorage.getItem("allMessages") || "[]")
-    const messageToUpdate = allMessages.find((msg: Message) => msg.id === messageId)
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "react",
+          messageId,
+          userId: user.id,
+          reaction,
+        }),
+      })
 
-    if (!messageToUpdate) return
+      const data = await res.json()
 
-    // Initialize reactions if they don't exist
-    const currentReactions = messageToUpdate.reactions || {}
-
-    // Toggle reaction
-    if (currentReactions[user.id] === reaction) {
-      delete currentReactions[user.id]
-    } else {
-      currentReactions[user.id] = reaction
+      if (data.success) {
+        setMessages((prevMessages) =>
+          prevMessages.map((msg) =>
+            msg.id === messageId ? { ...msg, reactions: data.reactions } : msg,
+          ),
+        )
+        setShowReactions(null)
+      }
+    } catch (err: any) {
+      console.error("Error reacting to message:", err)
     }
-
-    // Update message with new reactions
-    const updatedAllMessages = allMessages.map((msg: Message) =>
-      msg.id === messageId ? { ...msg, reactions: currentReactions } : msg,
-    )
-
-    localStorage.setItem("allMessages", JSON.stringify(updatedAllMessages))
-
-    // Update local state
-    const updatedMessages = messages.map((msg) =>
-      msg.id === messageId ? { ...msg, reactions: currentReactions } : msg,
-    )
-    setMessages(updatedMessages)
-
-    setShowReactions(null)
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!message.trim() || !selectedContact || !user) return
 
     const conversationId = getConversationId(user.id, selectedContact.contactId)
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
 
-    const newMessage: Message = {
-      id: `msg_${Date.now()}`,
-      senderId: user.id,
-      receiverId: selectedContact.contactId,
-      text: message,
-      timestamp: Date.now(),
-      conversationId,
-      read: false,
-      delivered: true,
-      type: "text",
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send",
+          messageId,
+          senderId: user.id,
+          receiverId: selectedContact.contactId,
+          text: message,
+          conversationId,
+          type: "text",
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success && data.message) {
+        setMessages((prevMessages) => [...prevMessages, data.message])
+        
+        // Update contact's last message locally
+        updateContactLastMessage(selectedContact.contactId, message)
+
+        // Clear typing indicator
+        if (typingTimeout) {
+          clearTimeout(typingTimeout)
+          setTypingTimeout(null)
+        }
+        setIsTyping(false)
+        updateTypingStatus(selectedContact.contactId, false)
+
+        setMessage("")
+      }
+    } catch (err: any) {
+      console.error("Error sending message:", err)
     }
-
-    // Add to all messages in localStorage
-    const allMessages = JSON.parse(localStorage.getItem("allMessages") || "[]")
-    const updatedAllMessages = [...allMessages, newMessage]
-    localStorage.setItem("allMessages", JSON.stringify(updatedAllMessages))
-
-    // Update local state
-    setMessages([...messages, newMessage])
-
-    // Update contact's last message
-    updateContactLastMessage(selectedContact.contactId, message)
-
-    // Clear typing indicator
-    if (typingTimeout) {
-      clearTimeout(typingTimeout)
-      setTypingTimeout(null)
-    }
-    setIsTyping(false)
-    updateTypingStatus(selectedContact.contactId, false)
-
-    setMessage("")
   }
 
   const updateContactLastMessage = (contactId: string, messageText: string) => {
-    if (!user) return
-
-    const allContacts = JSON.parse(localStorage.getItem("allContacts") || "[]")
-    const updatedAllContacts = allContacts.map((contact: Contact) => {
-      if (contact.userId === user.id && contact.contactId === contactId) {
-        return {
-          ...contact,
-          lastMessage: messageText || "No messages",
-          time: messageText ? "Just now" : "No messages",
-        }
-      }
-
-      // Also update the reciprocal contact for the other user
-      if (contact.userId === contactId && contact.contactId === user.id) {
-        return {
-          ...contact,
-          lastMessage: messageText || "No messages",
-          time: messageText ? "Just now" : "No messages",
-          unread: contact.unread + (messageText ? 1 : 0), // Increment unread count
-        }
-      }
-
-      return contact
-    })
-
-    localStorage.setItem("allContacts", JSON.stringify(updatedAllContacts))
-
-    // Update local state
-    setContacts(
-      contacts.map((contact) =>
+    setContacts((prevContacts) =>
+      prevContacts.map((contact) =>
         contact.contactId === contactId
           ? {
               ...contact,
@@ -1462,31 +1380,35 @@ export default function ChatPage() {
     setTypingTimeout(timeout)
   }
 
-  const updateTypingStatus = (contactId: string, isTyping: boolean) => {
+  const updateTypingStatus = async (contactId: string, isTypingValue: boolean) => {
     if (!user) return
 
-    // Update typing status in localStorage
-    const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-    const updatedAllUsers = allUsers.map((u: UserType) => {
-      if (u.id === user.id) {
-        const typing = u.typing || {}
-        return { ...u, typing: { ...typing, [contactId]: isTyping } }
-      }
-      return u
-    })
+    const currentTyping = user.typing || {}
+    const updatedTyping = { ...currentTyping, [contactId]: isTypingValue }
+    
+    // Update local state
+    const updatedUser = { ...user, typing: updatedTyping }
+    setUser(updatedUser)
+    localStorage.setItem("user", JSON.stringify(updatedUser))
 
-    localStorage.setItem("allUsers", JSON.stringify(updatedAllUsers))
+    try {
+      await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateSettings",
+          userId: user.id,
+          typing: updatedTyping
+        })
+      })
+    } catch (err) {
+      console.error("Failed to update typing status:", err)
+    }
   }
 
   const isContactTyping = (contactId: string) => {
-    if (!user) return false
-
-    const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-    const contactUser = allUsers.find((u: UserType) => u.id === contactId)
-
-    if (!contactUser || !contactUser.typing) return false
-
-    return contactUser.typing[user.id] || false
+    const contact = contacts.find((c) => c.contactId === contactId)
+    return contact?.typing || false
   }
 
   const formatTime = (timestamp: number) => {
@@ -1511,6 +1433,7 @@ export default function ChatPage() {
   }
 
   const getInitials = (name: string) => {
+    if (!name) return ""
     return name
       .split(" ")
       .map((n) => n[0])
@@ -1518,17 +1441,33 @@ export default function ChatPage() {
       .toUpperCase()
   }
 
+  const getUserDetails = (userId: string) => {
+    if (user && user.id === userId) return user
+    const foundContact = contacts.find(c => c.contactId === userId) ||
+                         sentRequests.find(c => c.contactId === userId) ||
+                         receivedRequests.find(c => c.contactId === userId) ||
+                         blockedContacts.find(c => c.contactId === userId)
+    if (foundContact) {
+      return {
+        name: foundContact.name,
+        avatar: foundContact.avatar,
+        online: foundContact.online,
+        lastSeen: (foundContact as any).lastSeen,
+      }
+    }
+    return null
+  }
+
   const getContactStatus = (contactId: string) => {
     if (!user) return null
 
-    // Check if user is online
-    const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-    const contactUser = allUsers.find((u: UserType) => u.id === contactId)
+    const details = getUserDetails(contactId)
+    if (!details) return "Offline"
 
-    if (contactUser?.online) {
+    if (details.online) {
       return "Online"
-    } else if (contactUser?.lastSeen) {
-      return `Last seen ${formatTimeRelative(contactUser.lastSeen)}`
+    } else if (details.lastSeen) {
+      return `Last seen ${formatTimeRelative(Number(details.lastSeen))}`
     } else {
       return "Offline"
     }
@@ -1637,57 +1576,59 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
-      <header className="flex h-16 items-center border-b bg-white px-4 dark:bg-gray-950">
+    <div className="flex h-screen flex-col bg-[#fafbfc] dark:bg-[#0b0f19] overflow-hidden text-slate-800 dark:text-slate-200 transition-colors duration-300">
+      
+      {/* Header */}
+      <header className="flex h-16 items-center border-b border-slate-200/50 bg-white/70 dark:border-slate-800/40 dark:bg-[#0b0f19]/70 backdrop-blur-md px-4 sticky top-0 z-40 transition-all duration-300">
         <div className="flex w-full items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {isMobile && (
               <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon">
+                  <Button variant="ghost" size="icon" className="rounded-xl border border-slate-200/50 dark:border-slate-800/50">
                     <Menu className="h-5 w-5" />
                     <span className="sr-only">Toggle menu</span>
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="p-0">
+                <SheetContent side="left" className="p-0 border-r border-slate-200/60 dark:border-slate-800/55 bg-white dark:bg-[#0b0f19]">
                   <SheetHeader>
                     <SheetTitle className="sr-only">Sidebar Menu</SheetTitle>
                   </SheetHeader>
                   <div className="flex h-full flex-col">
-                    <div className="flex h-16 items-center border-b px-4">
+                    <div className="flex h-16 items-center border-b border-slate-100 dark:border-slate-900 px-4 bg-slate-50/50 dark:bg-slate-950/20">
                       <div className="flex items-center gap-2">
                         <div>
                           <div className="flex items-center gap-2">
-                            <div className="font-medium">{user.name}</div>
+                            <div className="font-bold text-sm">{user.name}</div>
                             {getStatusIcon(userStatus)}
                           </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">{user.email}</div>
+                          <div className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">{user.email}</div>
                         </div>
                       </div>
                     </div>
                     <div className="flex flex-1 flex-col overflow-hidden">
-                      <Tabs defaultValue="chats" className="w-full" onValueChange={setActiveTab}>
-                        <TabsList className="grid w-full grid-cols-4">
-                          <TabsTrigger value="chats">Chats</TabsTrigger>
-                          <TabsTrigger value="received" className="relative">
-                            Received
+                      <Tabs defaultValue="chats" className="w-full flex flex-col h-full" onValueChange={setActiveTab}>
+                        <TabsList className="grid w-full grid-cols-4 bg-slate-100/60 dark:bg-slate-900/60 p-1 rounded-xl mx-2 my-2 w-[calc(100%-16px)]">
+                          <TabsTrigger value="chats" className="rounded-lg text-xs font-semibold">Chats</TabsTrigger>
+                          <TabsTrigger value="received" className="rounded-lg text-xs font-semibold relative">
+                            Inbox
                             {receivedRequests.length > 0 && (
-                              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white">
+                              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-650 text-[9px] text-white">
                                 {receivedRequests.length}
                               </span>
                             )}
                           </TabsTrigger>
-                          <TabsTrigger value="sent">Sent</TabsTrigger>
-                          <TabsTrigger value="blocked">Blocked</TabsTrigger>
+                          <TabsTrigger value="sent" className="rounded-lg text-xs font-semibold">Sent</TabsTrigger>
+                          <TabsTrigger value="blocked" className="rounded-lg text-xs font-semibold">Blocked</TabsTrigger>
                         </TabsList>
-
-                        <TabsContent value="chats" className="flex flex-col h-full">
-                          <div className="flex items-center gap-2 border-b p-4">
+ 
+                        <TabsContent value="chats" className="flex flex-col flex-1 overflow-hidden m-0">
+                          <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-900 p-3">
                             <div className="relative w-full">
-                              <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
+                              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400 dark:text-slate-600" />
                               <Input
                                 placeholder="Search contacts..."
-                                className="h-9 pl-8"
+                                className="h-9 pl-8.5 rounded-xl border-slate-200 bg-slate-50/50 focus-visible:ring-indigo-500/30 dark:border-slate-800 dark:bg-slate-900/50"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                               />
@@ -1697,18 +1638,18 @@ export default function ChatPage() {
                               size="icon"
                               onClick={() => setShowFilterOptions(!showFilterOptions)}
                               className={cn(
-                                "h-9 w-9",
+                                "h-9 w-9 rounded-xl border border-slate-200/50 dark:border-slate-850",
                                 (filterOptions.showOnlineOnly || filterOptions.sortBy !== "recent") &&
-                                  "text-blue-600 dark:text-blue-400",
+                                  "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20",
                               )}
                             >
                               <Filter className="h-4 w-4" />
                             </Button>
                           </div>
                           {showFilterOptions && (
-                            <div className="border-b p-4 space-y-3">
+                            <div className="border-b border-slate-100 dark:border-slate-900 p-4 space-y-3 bg-slate-50/30 dark:bg-slate-950/10">
                               <div className="flex items-center justify-between">
-                                <Label htmlFor="online-only" className="text-sm">
+                                <Label htmlFor="online-only" className="text-xs font-semibold text-slate-550 dark:text-slate-400">
                                   Show online contacts only
                                 </Label>
                                 <Switch
@@ -1719,8 +1660,8 @@ export default function ChatPage() {
                                   }
                                 />
                               </div>
-                              <div className="space-y-1">
-                                <Label className="text-sm">Sort by</Label>
+                              <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-550 dark:text-slate-400">Sort by</Label>
                                 <RadioGroup
                                   value={filterOptions.sortBy}
                                   onValueChange={(value) =>
@@ -1732,20 +1673,20 @@ export default function ChatPage() {
                                   className="flex flex-col space-y-1"
                                 >
                                   <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="recent" id="recent" />
-                                    <Label htmlFor="recent" className="text-sm font-normal">
+                                    <RadioGroupItem value="recent" id="recent" className="text-indigo-650" />
+                                    <Label htmlFor="recent" className="text-xs font-medium cursor-pointer">
                                       Recent messages
                                     </Label>
                                   </div>
                                   <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="name" id="name" />
-                                    <Label htmlFor="name" className="text-sm font-normal">
+                                    <RadioGroupItem value="name" id="name" className="text-indigo-650" />
+                                    <Label htmlFor="name" className="text-xs font-medium cursor-pointer">
                                       Name
                                     </Label>
                                   </div>
                                   <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="unread" id="unread" />
-                                    <Label htmlFor="unread" className="text-sm font-normal">
+                                    <RadioGroupItem value="unread" id="unread" className="text-indigo-650" />
+                                    <Label htmlFor="unread" className="text-xs font-medium cursor-pointer">
                                       Unread messages
                                     </Label>
                                   </div>
@@ -1753,28 +1694,28 @@ export default function ChatPage() {
                               </div>
                             </div>
                           )}
-                          <div className="flex justify-end p-2">
+                          <div className="flex justify-end p-2 border-b border-slate-100 dark:border-slate-900 bg-slate-50/10">
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => setShowAddContact(true)}
-                              className="text-xs"
+                              className="text-xs rounded-xl font-bold border-indigo-100 hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-800 dark:hover:bg-slate-900"
                             >
-                              <UserPlus className="h-3 w-3 mr-1" />
+                              <UserPlus className="h-3.5 w-3.5 mr-1" />
                               Add Contact
                             </Button>
                           </div>
-                          <ScrollArea className="flex-1">
-                            <div className="p-2">
+                          <ScrollArea className="flex-1 custom-scrollbar">
+                            <div className="p-2 space-y-1">
                               {filteredContacts.length > 0 ? (
                                 filteredContacts.map((contact) => (
                                   <button
                                     key={contact.id}
                                     className={cn(
-                                      "flex w-full items-center gap-3 rounded-lg p-2 text-left",
+                                      "flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-all duration-200",
                                       selectedContact?.contactId === contact.contactId
-                                        ? "bg-gray-100 dark:bg-gray-800"
-                                        : "hover:bg-gray-100 dark:hover:bg-gray-800",
+                                        ? "bg-indigo-50/70 dark:bg-indigo-950/30 text-indigo-950 dark:text-indigo-300"
+                                        : "hover:bg-slate-100/60 dark:hover:bg-slate-900/40 text-slate-700 dark:text-slate-400",
                                     )}
                                     onClick={() => {
                                       setSelectedContact(contact)
@@ -1782,67 +1723,67 @@ export default function ChatPage() {
                                     }}
                                   >
                                     <div className="relative">
-                                      <Avatar>
+                                      <Avatar className="h-9 w-9 border border-slate-205 dark:border-slate-805">
                                         {contact.avatar ? (
                                           <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                         ) : (
-                                          <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                          <AvatarFallback className="bg-gradient-to-tr from-indigo-500/10 to-violet-500/10 font-bold text-xs text-indigo-600">{getInitials(contact.name)}</AvatarFallback>
                                         )}
                                       </Avatar>
                                       {contact.online && (
-                                        <span className="absolute right-0 top-0 h-3 w-3 rounded-full bg-green-500 ring-2 ring-white dark:ring-gray-950" />
+                                        <span className="absolute right-0 top-0 h-3 w-3 rounded-full bg-green-500 ring-2 ring-white dark:ring-slate-950" />
                                       )}
                                     </div>
                                     <div className="flex-1 overflow-hidden">
                                       <div className="flex items-center justify-between">
-                                        <div className="font-medium">{contact.name}</div>
-                                        <div className="text-xs text-gray-500 dark:text-gray-400">{contact.time}</div>
+                                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">{contact.name}</div>
+                                        <div className="text-[10px] text-slate-400">{contact.time}</div>
                                       </div>
-                                      <div className="text-sm text-gray-500 truncate dark:text-gray-400">
+                                      <div className="text-[11px] text-slate-450 dark:text-slate-500 truncate mt-0.5">
                                         {isContactTyping(contact.contactId) ? (
-                                          <span className="text-blue-600 dark:text-blue-400 italic">typing...</span>
+                                          <span className="text-indigo-600 dark:text-indigo-400 italic">typing...</span>
                                         ) : (
                                           contact.lastMessage
                                         )}
                                       </div>
                                     </div>
                                     {contact.unread > 0 && (
-                                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-xs font-medium text-white">
+                                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white shadow-sm shadow-indigo-600/20">
                                         {contact.unread}
                                       </div>
                                     )}
                                   </button>
                                 ))
                               ) : (
-                                <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                                   {searchQuery ? "No contacts found" : "No contacts yet"}
                                 </div>
                               )}
                             </div>
                           </ScrollArea>
                         </TabsContent>
-
-                        <TabsContent value="received" className="flex flex-col h-full">
-                          <ScrollArea className="flex-1">
-                            <div className="p-2">
+ 
+                        <TabsContent value="received" className="flex flex-col flex-1 overflow-hidden m-0">
+                          <ScrollArea className="flex-1 custom-scrollbar">
+                            <div className="p-2 space-y-1">
                               {receivedRequests.length > 0 ? (
                                 receivedRequests.map((contact) => (
                                   <div
                                     key={contact.id}
-                                    className="flex w-full items-center gap-3 rounded-lg p-2 text-left border-b"
+                                    className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-100 bg-slate-50/30 dark:border-slate-900 dark:bg-slate-950/20"
                                   >
                                     <div className="relative">
-                                      <Avatar>
+                                      <Avatar className="h-8 w-8">
                                         {contact.avatar ? (
                                           <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                         ) : (
-                                          <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                          <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                         )}
                                       </Avatar>
                                     </div>
                                     <div className="flex-1 overflow-hidden">
-                                      <div className="font-medium">{contact.name}</div>
-                                      <div className="text-sm text-gray-500 dark:text-gray-400">{contact.email}</div>
+                                      <div className="font-semibold text-xs truncate">{contact.name}</div>
+                                      <div className="text-[10px] text-slate-400 truncate">{contact.email}</div>
                                     </div>
                                     <div className="flex gap-1">
                                       <TooltipProvider>
@@ -1852,17 +1793,17 @@ export default function ChatPage() {
                                               variant="ghost"
                                               size="icon"
                                               onClick={() => handleAcceptContact(contact.contactId)}
-                                              className="h-8 w-8 text-green-500"
+                                              className="h-8 w-8 text-green-500 hover:bg-green-50 dark:hover:bg-green-950/20 rounded-lg"
                                             >
                                               <Check className="h-4 w-4" />
                                             </Button>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>Accept</p>
+                                            <p className="text-xs">Accept</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       </TooltipProvider>
-
+ 
                                       <TooltipProvider>
                                         <Tooltip>
                                           <TooltipTrigger asChild>
@@ -1870,17 +1811,17 @@ export default function ChatPage() {
                                               variant="ghost"
                                               size="icon"
                                               onClick={() => handleRejectContact(contact.contactId)}
-                                              className="h-8 w-8 text-red-500"
+                                              className="h-8 w-8 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg"
                                             >
                                               <X className="h-4 w-4" />
                                             </Button>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>Reject</p>
+                                            <p className="text-xs">Reject</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       </TooltipProvider>
-
+ 
                                       <TooltipProvider>
                                         <Tooltip>
                                           <TooltipTrigger asChild>
@@ -1888,13 +1829,13 @@ export default function ChatPage() {
                                               variant="ghost"
                                               size="icon"
                                               onClick={() => handleBlockContact(contact.contactId)}
-                                              className="h-8 w-8 text-gray-500"
+                                              className="h-8 w-8 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
                                             >
                                               <Shield className="h-4 w-4" />
                                             </Button>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>Block</p>
+                                            <p className="text-xs">Block</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       </TooltipProvider>
@@ -1902,89 +1843,90 @@ export default function ChatPage() {
                                   </div>
                                 ))
                               ) : (
-                                <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                                  No pending requests
+                                <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
+                                  No pending inbox requests
                                 </div>
                               )}
                             </div>
                           </ScrollArea>
                         </TabsContent>
-
-                        <TabsContent value="sent" className="flex flex-col h-full">
-                          <ScrollArea className="flex-1">
-                            <div className="p-2">
+ 
+                        <TabsContent value="sent" className="flex flex-col flex-1 overflow-hidden m-0">
+                          <ScrollArea className="flex-1 custom-scrollbar">
+                            <div className="p-2 space-y-1">
                               {sentRequests.length > 0 ? (
                                 sentRequests.map((contact) => (
                                   <div
                                     key={contact.id}
-                                    className="flex w-full items-center gap-3 rounded-lg p-2 text-left border-b"
+                                    className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-100 bg-slate-50/30 dark:border-slate-900 dark:bg-slate-950/20"
                                   >
                                     <div className="relative">
-                                      <Avatar>
+                                      <Avatar className="h-8 w-8">
                                         {contact.avatar ? (
                                           <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                         ) : (
-                                          <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                          <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                         )}
                                       </Avatar>
                                     </div>
                                     <div className="flex-1 overflow-hidden">
-                                      <div className="font-medium">{contact.name}</div>
-                                      <div className="text-sm text-gray-500 dark:text-gray-400">{contact.email}</div>
-                                      <div className="text-xs text-blue-600 dark:text-blue-400">Request sent</div>
+                                      <div className="font-semibold text-xs truncate">{contact.name}</div>
+                                      <div className="text-[10px] text-slate-400 truncate">{contact.email}</div>
+                                      <div className="text-[9px] text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">Request sent</div>
                                     </div>
                                     <Button
                                       variant="outline"
                                       size="sm"
                                       onClick={() => handleCancelRequest(contact.contactId)}
-                                      className="text-xs"
+                                      className="text-xs rounded-xl hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20"
                                     >
                                       Cancel
                                     </Button>
                                   </div>
                                 ))
                               ) : (
-                                <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                                   No sent requests
                                 </div>
                               )}
                             </div>
                           </ScrollArea>
                         </TabsContent>
-
-                        <TabsContent value="blocked" className="flex flex-col h-full">
-                          <ScrollArea className="flex-1">
-                            <div className="p-2">
+ 
+                        <TabsContent value="blocked" className="flex flex-col flex-1 overflow-hidden m-0">
+                          <ScrollArea className="flex-1 custom-scrollbar">
+                            <div className="p-2 space-y-1">
                               {blockedContacts.length > 0 ? (
                                 blockedContacts.map((contact) => (
                                   <div
                                     key={contact.id}
-                                    className="flex w-full items-center gap-3 rounded-lg p-2 text-left border-b"
+                                    className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-105 bg-slate-50/30 dark:border-slate-905 dark:bg-slate-955/20"
                                   >
                                     <div className="relative">
-                                      <Avatar>
+                                      <Avatar className="h-8 w-8">
                                         {contact.avatar ? (
                                           <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                         ) : (
-                                          <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                          <AvatarFallback className="bg-slate-100 text-slate-600 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                         )}
                                       </Avatar>
                                     </div>
                                     <div className="flex-1 overflow-hidden">
-                                      <div className="font-medium">{contact.name}</div>
-                                      <div className="text-sm text-gray-500 dark:text-gray-400">{contact.email}</div>
+                                      <div className="font-semibold text-xs truncate">{contact.name}</div>
+                                      <div className="text-[10px] text-slate-400 truncate">{contact.email}</div>
                                     </div>
                                     <Button
                                       variant="outline"
                                       size="sm"
                                       onClick={() => handleUnblockContact(contact.contactId)}
+                                      className="text-xs rounded-xl border-slate-205 dark:border-slate-805 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                                     >
                                       Unblock
                                     </Button>
                                   </div>
                                 ))
                               ) : (
-                                <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                                <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                                   No blocked contacts
                                 </div>
                               )}
@@ -1998,73 +1940,75 @@ export default function ChatPage() {
               </Sheet>
             )}
             <div className="flex items-center gap-2">
-              <div className="relative h-10 w-10 overflow-hidden rounded-full bg-white">
+              <div className="relative h-9 w-9 overflow-hidden rounded-xl bg-gradient-to-tr from-indigo-650 to-violet-500 shadow-sm flex items-center justify-center text-white">
                 <Image
                   src="/vartasetu-logo-icon.jpeg"
                   alt="VartaSetu Logo"
-                  width={40}
-                  height={40}
-                  className="object-contain"
+                  width={36}
+                  height={36}
+                  className="object-contain opacity-95"
                 />
               </div>
-              <div className="text-xl font-bold text-gray-700">VartaSetu</div>
+              <div className="text-xl font-bold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 dark:from-white dark:via-indigo-100 dark:to-indigo-300 bg-clip-text text-transparent">
+                VartaSetu
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => setShowProfile(true)}>
+            <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => setShowProfile(true)} title="Profile">
               <User className="h-5 w-5" />
               <span className="sr-only">Profile</span>
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)}>
+            <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => setShowSettings(true)} title="Settings">
               <Settings className="h-5 w-5" />
               <span className="sr-only">Settings</span>
             </Button>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
+            <Button variant="ghost" size="icon" className="rounded-xl text-red-500 hover:text-red-650 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={handleLogout} title="Log Out">
               <LogOut className="h-5 w-5" />
               <span className="sr-only">Log out</span>
             </Button>
           </div>
         </div>
       </header>
-
+ 
       <main className="flex flex-1 overflow-hidden">
         {!isMobile && (
-          <aside className="h-full w-80 border-r bg-white dark:bg-gray-950">
+          <aside className="h-full w-80 border-r border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-[#0b0f19] flex-shrink-0 transition-colors duration-300">
             <div className="flex h-full flex-col">
-              <div className="flex h-16 items-center border-b px-4">
+              <div className="flex h-16 items-center border-b border-slate-100 dark:border-slate-900 px-4 bg-slate-50/50 dark:bg-slate-950/20">
                 <div className="flex items-center gap-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <div className="font-medium">{user.name}</div>
+                      <div className="font-bold text-sm">{user.name}</div>
                       {getStatusIcon(userStatus)}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{user.email}</div>
+                    <div className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">{user.email}</div>
                   </div>
                 </div>
               </div>
               <div className="flex flex-1 flex-col overflow-hidden">
-                <Tabs defaultValue="chats" className="w-full" onValueChange={setActiveTab}>
-                  <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="chats">Chats</TabsTrigger>
-                    <TabsTrigger value="received" className="relative">
-                      Received
+                <Tabs defaultValue="chats" className="w-full flex flex-col h-full" onValueChange={setActiveTab}>
+                  <TabsList className="grid w-full grid-cols-4 bg-slate-100/60 dark:bg-slate-900/60 p-1 rounded-xl mx-2 my-2 w-[calc(100%-16px)]">
+                    <TabsTrigger value="chats" className="rounded-lg text-xs font-semibold">Chats</TabsTrigger>
+                    <TabsTrigger value="received" className="rounded-lg text-xs font-semibold relative">
+                      Inbox
                       {receivedRequests.length > 0 && (
-                        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white">
+                        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-650 text-[9px] text-white">
                           {receivedRequests.length}
                         </span>
                       )}
                     </TabsTrigger>
-                    <TabsTrigger value="sent">Sent</TabsTrigger>
-                    <TabsTrigger value="blocked">Blocked</TabsTrigger>
+                    <TabsTrigger value="sent" className="rounded-lg text-xs font-semibold">Sent</TabsTrigger>
+                    <TabsTrigger value="blocked" className="rounded-lg text-xs font-semibold">Blocked</TabsTrigger>
                   </TabsList>
-
-                  <TabsContent value="chats" className="flex flex-col h-full">
-                    <div className="flex items-center gap-2 border-b p-4">
+ 
+                  <TabsContent value="chats" className="flex flex-col flex-1 overflow-hidden m-0">
+                    <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-900 p-3">
                       <div className="relative w-full">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-450 dark:text-slate-650" />
                         <Input
                           placeholder="Search contacts..."
-                          className="h-9 pl-8"
+                          className="h-9 pl-8.5 rounded-xl border-slate-200 bg-slate-50/50 focus-visible:ring-indigo-500/30 dark:border-slate-800 dark:bg-slate-900/50"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -2074,18 +2018,18 @@ export default function ChatPage() {
                         size="icon"
                         onClick={() => setShowFilterOptions(!showFilterOptions)}
                         className={cn(
-                          "h-9 w-9",
+                          "h-9 w-9 rounded-xl border border-slate-200/50 dark:border-slate-850",
                           (filterOptions.showOnlineOnly || filterOptions.sortBy !== "recent") &&
-                            "text-blue-600 dark:text-blue-400",
+                            "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20",
                         )}
                       >
                         <Filter className="h-4 w-4" />
                       </Button>
                     </div>
                     {showFilterOptions && (
-                      <div className="border-b p-4 space-y-3">
+                      <div className="border-b border-slate-100 dark:border-slate-900 p-4 space-y-3 bg-slate-50/30 dark:bg-slate-950/10">
                         <div className="flex items-center justify-between">
-                          <Label htmlFor="online-only" className="text-sm">
+                          <Label htmlFor="online-only" className="text-xs font-semibold text-slate-550 dark:text-slate-400">
                             Show online contacts only
                           </Label>
                           <Switch
@@ -2096,8 +2040,8 @@ export default function ChatPage() {
                             }
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-sm">Sort by</Label>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold text-slate-550 dark:text-slate-400">Sort by</Label>
                           <RadioGroup
                             value={filterOptions.sortBy}
                             onValueChange={(value) =>
@@ -2109,20 +2053,20 @@ export default function ChatPage() {
                             className="flex flex-col space-y-1"
                           >
                             <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="recent" id="recent" />
-                              <Label htmlFor="recent" className="text-sm font-normal">
+                              <RadioGroupItem value="recent" id="recent" className="text-indigo-650" />
+                              <Label htmlFor="recent" className="text-xs font-medium cursor-pointer">
                                 Recent messages
                               </Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="name" id="name" />
-                              <Label htmlFor="name" className="text-sm font-normal">
+                              <RadioGroupItem value="name" id="name" className="text-indigo-650" />
+                              <Label htmlFor="name" className="text-xs font-medium cursor-pointer">
                                 Name
                               </Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="unread" id="unread" />
-                              <Label htmlFor="unread" className="text-sm font-normal">
+                              <RadioGroupItem value="unread" id="unread" className="text-indigo-650" />
+                              <Label htmlFor="unread" className="text-xs font-medium cursor-pointer">
                                 Unread messages
                               </Label>
                             </div>
@@ -2130,34 +2074,39 @@ export default function ChatPage() {
                         </div>
                       </div>
                     )}
-                    <div className="flex justify-end p-2">
-                      <Button variant="outline" size="sm" onClick={() => setShowAddContact(true)} className="text-xs">
-                        <UserPlus className="h-3 w-3 mr-1" />
+                    <div className="flex justify-end p-2 border-b border-slate-100 dark:border-slate-900 bg-slate-50/10">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAddContact(true)}
+                        className="text-xs rounded-xl font-bold border-indigo-100 hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-800 dark:hover:bg-slate-900"
+                      >
+                        <UserPlus className="h-3.5 w-3.5 mr-1" />
                         Add Contact
                       </Button>
                     </div>
-                    <ScrollArea className="flex-1">
-                      <div className="p-2">
+                    <ScrollArea className="flex-1 custom-scrollbar">
+                      <div className="p-2 space-y-1">
                         {filteredContacts.length > 0 ? (
                           filteredContacts.map((contact) => (
                             <button
                               key={contact.id}
                               className={cn(
-                                "flex w-full items-center gap-3 rounded-lg p-2 text-left",
+                                "flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-all duration-200",
                                 selectedContact?.contactId === contact.contactId
-                                  ? "bg-gray-100 dark:bg-gray-800"
-                                  : "hover:bg-gray-100 dark:hover:bg-gray-800",
+                                  ? "bg-indigo-50/70 dark:bg-indigo-950/30 text-indigo-950 dark:text-indigo-300"
+                                  : "hover:bg-slate-100/60 dark:hover:bg-slate-900/40 text-slate-700 dark:text-slate-400",
                               )}
                               onClick={() => {
                                 setSelectedContact(contact)
                               }}
                             >
                               <div className="relative">
-                                <Avatar>
+                                <Avatar className="h-9 w-9 border border-slate-205 dark:border-slate-805">
                                   {contact.avatar ? (
                                     <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                   ) : (
-                                    <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                    <AvatarFallback className="bg-gradient-to-tr from-indigo-500/10 to-violet-500/10 font-bold text-xs text-indigo-600">{getInitials(contact.name)}</AvatarFallback>
                                   )}
                                 </Avatar>
                                 {contact.online && (
@@ -2166,54 +2115,54 @@ export default function ChatPage() {
                               </div>
                               <div className="flex-1 overflow-hidden">
                                 <div className="flex items-center justify-between">
-                                  <div className="font-medium">{contact.name}</div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">{contact.time}</div>
+                                  <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">{contact.name}</div>
+                                  <div className="text-[10px] text-slate-400">{contact.time}</div>
                                 </div>
-                                <div className="text-sm text-gray-500 truncate dark:text-gray-400">
+                                <div className="text-[11px] text-slate-450 dark:text-slate-500 truncate mt-0.5">
                                   {isContactTyping(contact.contactId) ? (
-                                    <span className="text-blue-600 dark:text-blue-400 italic">typing...</span>
+                                    <span className="text-indigo-600 dark:text-indigo-400 italic">typing...</span>
                                   ) : (
                                     contact.lastMessage
                                   )}
                                 </div>
                               </div>
                               {contact.unread > 0 && (
-                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-xs font-medium text-white">
+                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white shadow-sm shadow-indigo-600/20">
                                   {contact.unread}
                                 </div>
                               )}
                             </button>
                           ))
                         ) : (
-                          <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                          <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                             {searchQuery ? "No contacts found" : "No contacts yet"}
                           </div>
                         )}
                       </div>
                     </ScrollArea>
                   </TabsContent>
-
-                  <TabsContent value="received" className="flex flex-col h-full">
-                    <ScrollArea className="flex-1">
-                      <div className="p-2">
+ 
+                  <TabsContent value="received" className="flex flex-col flex-1 overflow-hidden m-0">
+                    <ScrollArea className="flex-1 custom-scrollbar">
+                      <div className="p-2 space-y-1">
                         {receivedRequests.length > 0 ? (
                           receivedRequests.map((contact) => (
                             <div
                               key={contact.id}
-                              className="flex w-full items-center gap-3 rounded-lg p-2 text-left border-b"
+                              className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-100 bg-slate-50/30 dark:border-slate-900 dark:bg-slate-950/20"
                             >
                               <div className="relative">
-                                <Avatar>
+                                <Avatar className="h-8 w-8">
                                   {contact.avatar ? (
                                     <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                   ) : (
-                                    <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                    <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-605 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                   )}
                                 </Avatar>
                               </div>
                               <div className="flex-1 overflow-hidden">
-                                <div className="font-medium">{contact.name}</div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">{contact.email}</div>
+                                <div className="font-semibold text-xs truncate">{contact.name}</div>
+                                <div className="text-[10px] text-slate-450 dark:text-slate-550 truncate">{contact.email}</div>
                               </div>
                               <div className="flex gap-1">
                                 <TooltipProvider>
@@ -2223,17 +2172,17 @@ export default function ChatPage() {
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => handleAcceptContact(contact.contactId)}
-                                        className="h-8 w-8 text-green-500"
+                                        className="h-8 w-8 text-green-500 hover:bg-green-50 dark:hover:bg-green-950/20 rounded-lg"
                                       >
                                         <Check className="h-4 w-4" />
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                      <p>Accept</p>
+                                      <p className="text-xs">Accept</p>
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
-
+ 
                                 <TooltipProvider>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -2241,17 +2190,17 @@ export default function ChatPage() {
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => handleRejectContact(contact.contactId)}
-                                        className="h-8 w-8 text-red-500"
+                                        className="h-8 w-8 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg"
                                       >
                                         <X className="h-4 w-4" />
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                      <p>Reject</p>
+                                      <p className="text-xs">Reject</p>
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
-
+ 
                                 <TooltipProvider>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -2259,13 +2208,13 @@ export default function ChatPage() {
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => handleBlockContact(contact.contactId)}
-                                        className="h-8 w-8 text-gray-500"
+                                        className="h-8 w-8 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
                                       >
                                         <Shield className="h-4 w-4" />
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                      <p>Block</p>
+                                      <p className="text-xs">Block</p>
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
@@ -2273,89 +2222,90 @@ export default function ChatPage() {
                             </div>
                           ))
                         ) : (
-                          <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                            No pending requests
+                          <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
+                            No pending inbox requests
                           </div>
                         )}
                       </div>
                     </ScrollArea>
                   </TabsContent>
-
-                  <TabsContent value="sent" className="flex flex-col h-full">
-                    <ScrollArea className="flex-1">
-                      <div className="p-2">
+ 
+                  <TabsContent value="sent" className="flex flex-col flex-1 overflow-hidden m-0">
+                    <ScrollArea className="flex-1 custom-scrollbar">
+                      <div className="p-2 space-y-1">
                         {sentRequests.length > 0 ? (
                           sentRequests.map((contact) => (
                             <div
                               key={contact.id}
-                              className="flex w-full items-center gap-3 rounded-lg p-2 text-left border-b"
+                              className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-105 bg-slate-50/30 dark:border-slate-905 dark:bg-slate-955/20"
                             >
                               <div className="relative">
-                                <Avatar>
+                                <Avatar className="h-8 w-8">
                                   {contact.avatar ? (
                                     <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                   ) : (
-                                    <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                    <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                   )}
                                 </Avatar>
                               </div>
                               <div className="flex-1 overflow-hidden">
-                                <div className="font-medium">{contact.name}</div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">{contact.email}</div>
-                                <div className="text-xs text-blue-600 dark:text-blue-400">Request sent</div>
+                                <div className="font-semibold text-xs truncate">{contact.name}</div>
+                                <div className="text-[10px] text-slate-400 truncate">{contact.email}</div>
+                                <div className="text-[9px] text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">Request sent</div>
                               </div>
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleCancelRequest(contact.contactId)}
-                                className="text-xs"
+                                className="text-xs rounded-xl hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20"
                               >
                                 Cancel
                               </Button>
                             </div>
                           ))
                         ) : (
-                          <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                          <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                             No sent requests
                           </div>
                         )}
                       </div>
                     </ScrollArea>
                   </TabsContent>
-
-                  <TabsContent value="blocked" className="flex flex-col h-full">
-                    <ScrollArea className="flex-1">
-                      <div className="p-2">
+ 
+                  <TabsContent value="blocked" className="flex flex-col flex-1 overflow-hidden m-0">
+                    <ScrollArea className="flex-1 custom-scrollbar">
+                      <div className="p-2 space-y-1">
                         {blockedContacts.length > 0 ? (
                           blockedContacts.map((contact) => (
                             <div
                               key={contact.id}
-                              className="flex w-full items-center gap-3 rounded-lg p-2 text-left border-b"
+                              className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-100 bg-slate-50/30 dark:border-slate-900 dark:bg-slate-950/20"
                             >
                               <div className="relative">
-                                <Avatar>
+                                <Avatar className="h-8 w-8">
                                   {contact.avatar ? (
                                     <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                   ) : (
-                                    <AvatarFallback>{getInitials(contact.name)}</AvatarFallback>
+                                    <AvatarFallback className="bg-slate-105 text-slate-600 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                   )}
                                 </Avatar>
                               </div>
                               <div className="flex-1 overflow-hidden">
-                                <div className="font-medium">{contact.name}</div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">{contact.email}</div>
+                                <div className="font-semibold text-xs truncate">{contact.name}</div>
+                                <div className="text-[10px] text-slate-400 truncate">{contact.email}</div>
                               </div>
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleUnblockContact(contact.contactId)}
+                                className="text-xs rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                               >
                                 Unblock
                               </Button>
                             </div>
                           ))
                         ) : (
-                          <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                          <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
                             No blocked contacts
                           </div>
                         )}
@@ -2367,122 +2317,126 @@ export default function ChatPage() {
             </div>
           </aside>
         )}
-
+ 
         {selectedContact ? (
-          <div className="flex flex-1 flex-col">
-            <div className="flex h-16 items-center border-b px-4">
-              {isMobile && (
-                <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} className="mr-2">
-                  <ChevronLeft className="h-5 w-5" />
-                  <span className="sr-only">Back</span>
-                </Button>
-              )}
+          <div className="flex flex-1 flex-col bg-slate-50/30 dark:bg-slate-950/5 relative">
+            
+            {/* Contact Header */}
+            <div className="flex h-16 items-center border-b border-slate-200/50 bg-white/70 dark:border-slate-800/40 dark:bg-[#0b0f19]/70 backdrop-blur-sm px-4 justify-between z-10 transition-colors">
               <div className="flex items-center gap-3">
-                <Avatar className="cursor-pointer" onClick={() => setShowContactInfo(true)}>
+                {isMobile && (
+                  <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} className="mr-2 rounded-xl">
+                    <ChevronLeft className="h-5 w-5" />
+                    <span className="sr-only">Back</span>
+                  </Button>
+                )}
+                <Avatar className="cursor-pointer border border-slate-200/60 dark:border-slate-800/60" onClick={() => setShowContactInfo(true)}>
                   {selectedContact.avatar ? (
                     <AvatarImage src={selectedContact.avatar || "/placeholder.svg"} alt={selectedContact.name} />
                   ) : (
-                    <AvatarFallback>{getInitials(selectedContact.name)}</AvatarFallback>
+                    <AvatarFallback className="bg-gradient-to-tr from-indigo-500/10 to-violet-500/10 text-indigo-600 font-bold text-sm">{getInitials(selectedContact.name)}</AvatarFallback>
                   )}
                 </Avatar>
                 <div>
-                  <div className="font-medium">{selectedContact.name}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                  <div className="font-bold text-slate-900 dark:text-white text-sm">{selectedContact.name}</div>
+                  <div className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">
                     {getContactStatus(selectedContact.contactId)}
                   </div>
                 </div>
               </div>
-              <div className="ml-auto flex items-center gap-2">
+              
+              <div className="flex items-center gap-1.5">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={() => initializeCall(false)}>
-                        <Phone className="h-5 w-5" />
+                      <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => initializeCall(false)}>
+                        <Phone className="h-4.5 w-4.5 text-slate-600 dark:text-slate-300" />
                         <span className="sr-only">Start audio call</span>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Start audio call</p>
+                      <p className="text-xs">Audio call</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-
+ 
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={() => initializeCall(true)}>
-                        <Video className="h-5 w-5" />
+                      <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => initializeCall(true)}>
+                        <Video className="h-4.5 w-4.5 text-slate-600 dark:text-slate-300" />
                         <span className="sr-only">Start video call</span>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Start video call</p>
+                      <p className="text-xs">Video call</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-
+ 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <MoreVertical className="h-5 w-5" />
-                      <span className="sr-only">More</span>
+                    <Button variant="ghost" size="icon" className="rounded-xl">
+                      <MoreVertical className="h-4.5 w-4.5 text-slate-600 dark:text-slate-300" />
+                      <span className="sr-only">More Options</span>
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="rounded-xl">
                     <DropdownMenuItem onClick={() => setShowContactInfo(true)}>
-                      <Info className="h-4 w-4 mr-2" />
+                      <Info className="h-4 w-4 mr-2 text-slate-500" />
                       Contact Info
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setShowDeleteChat(true)}>
+                    <DropdownMenuItem onClick={() => setShowDeleteChat(true)} className="text-red-500 hover:text-red-600">
                       <Trash2 className="h-4 w-4 mr-2" />
                       Delete Chat
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setShowDeleteContact(true)}>
+                    <DropdownMenuItem onClick={() => setShowDeleteContact(true)} className="text-red-500 hover:text-red-600">
                       <UserMinus className="h-4 w-4 mr-2" />
                       Delete Contact
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => handleBlockContact(selectedContact.contactId)}>
-                      <Shield className="h-4 w-4 mr-2" />
+                      <Shield className="h-4 w-4 mr-2 text-amber-500" />
                       Block Contact
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </div>
-
-            <ScrollArea className="flex-1 p-2 sm:p-4">
-              <div className="flex flex-col gap-2 sm:gap-4">
+ 
+            {/* Messages Area */}
+            <ScrollArea className="flex-1 p-4 custom-scrollbar">
+              <div className="flex flex-col gap-3 py-2 max-w-5xl mx-auto w-full">
                 {getConversationMessages().map((msg) => (
                   <div
                     key={msg.id}
                     className={cn("flex w-full flex-col", msg.senderId === user.id ? "items-end" : "items-start")}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-end gap-2 max-w-[85vw] sm:max-w-[70%]">
                       {msg.senderId !== user.id && (
-                        <Avatar className="h-6 w-6">
+                        <Avatar className="h-7 w-7 border border-slate-200 dark:border-slate-800/80 mb-1">
                           {selectedContact.avatar ? (
                             <AvatarImage
                               src={selectedContact.avatar || "/placeholder.svg"}
                               alt={selectedContact.name}
                             />
                           ) : (
-                            <AvatarFallback>{getInitials(selectedContact.name)}</AvatarFallback>
+                            <AvatarFallback className="bg-slate-100 text-xs font-bold text-slate-600">{getInitials(selectedContact.name)}</AvatarFallback>
                           )}
                         </Avatar>
                       )}
                       <div className="flex flex-col">
                         <div
                           className={cn(
-                            "relative rounded-md px-2 sm:px-3 py-2 text-sm shadow-sm max-w-[85vw] sm:max-w-md md:max-w-lg break-words",
+                            "relative rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm shadow-sm break-words leading-relaxed",
                             msg.senderId === user.id
-                              ? "bg-blue-600 text-white"
-                              : "bg-gray-100 dark:bg-gray-800 dark:text-white",
+                              ? "bg-indigo-600 text-white rounded-br-none shadow-indigo-500/5"
+                              : "bg-white dark:bg-slate-850 dark:text-white border border-slate-200/40 dark:border-slate-800/85 rounded-bl-none shadow-slate-100/5",
                           )}
                         >
                           {editingMessage === msg.id ? (
-                            <div className="flex flex-col gap-2">
+                            <div className="flex flex-col gap-2 min-w-[200px]">
                               <Input
                                 type="text"
                                 value={editedText}
@@ -2496,15 +2450,16 @@ export default function ChatPage() {
                                   }
                                 }}
                                 autoFocus
-                                className="bg-white dark:bg-gray-700"
+                                className="bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm h-9"
                               />
-                              <div className="flex justify-end gap-2">
-                                <Button variant="outline" size="sm" onClick={saveEditedMessage}>
+                              <div className="flex justify-end gap-1.5">
+                                <Button size="sm" variant="outline" className="h-7 text-[11px] rounded-lg" onClick={saveEditedMessage}>
                                   Save
                                 </Button>
                                 <Button
-                                  variant="ghost"
                                   size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-[11px] rounded-lg text-slate-500"
                                   onClick={() => {
                                     setEditingMessage(null)
                                     setEditedText("")
@@ -2518,26 +2473,20 @@ export default function ChatPage() {
                             <>
                               {msg.type !== "text" ? renderMediaMessage(msg) : <p>{msg.text}</p>}
                               {msg.edited && (
-                                <span className="ml-1 text-[0.7rem] italic text-gray-400 dark:text-gray-500">
+                                <span className="ml-1.5 text-[9px] font-bold opacity-60 italic text-slate-400 dark:text-slate-500">
                                   (edited)
                                 </span>
                               )}
                             </>
                           )}
-                          <div className="absolute -top-1 right-2 flex items-center gap-1">
+                          <div className="absolute -top-2.5 right-2.5 flex items-center gap-1">
                             {msg.reactions &&
                               Object.entries(msg.reactions).map(([userId, reaction]) => {
-                                const reactedUser = JSON.parse(localStorage.getItem("allUsers") || "[]").find(
-                                  (u: UserType) => u.id === userId,
-                                )
                                 return (
                                   <Badge
                                     key={userId}
                                     variant="secondary"
-                                    className="cursor-pointer rounded-full border-none"
-                                    onClick={() => {
-                                      // Show user profile or something
-                                    }}
+                                    className="cursor-default rounded-full border border-slate-100 dark:border-slate-800/80 px-1 py-0.5 text-[9px] shadow-sm"
                                   >
                                     {reaction}
                                   </Badge>
@@ -2545,24 +2494,24 @@ export default function ChatPage() {
                               })}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="flex items-center gap-1.5 mt-1 text-[9px] text-slate-450 dark:text-slate-500 px-1">
                           {msg.senderId === user.id && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-6 w-6">
+                                <Button variant="ghost" size="icon" className="h-4.5 w-4.5 rounded-lg opacity-40 hover:opacity-100 transition-opacity">
                                   <MoreVertical className="h-3 w-3" />
                                   <span className="sr-only">More</span>
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleEditMessage(msg.id)}>Edit</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleDeleteMessage(msg.id)}>Delete</DropdownMenuItem>
+                              <DropdownMenuContent align="end" className="rounded-lg">
+                                <DropdownMenuItem className="text-xs" onClick={() => handleEditMessage(msg.id)}>Edit</DropdownMenuItem>
+                                <DropdownMenuItem className="text-xs text-red-500" onClick={() => handleDeleteMessage(msg.id)}>Delete</DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => setShowReactions(msg.id)}>React</DropdownMenuItem>
+                                <DropdownMenuItem className="text-xs" onClick={() => setShowReactions(msg.id)}>React</DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           )}
-                          <div className="text-right">{formatTime(msg.timestamp)}</div>
+                          <div className="font-medium">{formatTime(msg.timestamp)}</div>
                         </div>
                       </div>
                     </div>
@@ -2571,31 +2520,49 @@ export default function ChatPage() {
                 <div ref={messagesEndRef} />
               </div>
             </ScrollArea>
-
-            <div className="flex h-16 items-center border-t px-2 sm:px-4">
-              <div className="flex items-center gap-1 sm:gap-2 w-full">
+ 
+            {/* Input Footer */}
+            <div className="p-3 bg-white/70 dark:bg-[#0b0f19]/70 border-t border-slate-200/50 dark:border-slate-800/40 backdrop-blur-md sticky bottom-0 z-10 transition-colors duration-300">
+              <div className="flex items-center gap-2 max-w-5xl mx-auto w-full">
                 <div className="hidden sm:block">
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-9 w-9">
-                        <Smile className="h-5 w-5" />
+                      <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-900">
+                        <Smile className="h-5 w-5 text-slate-500" />
                         <span className="sr-only">Add emoji</span>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-80">
-                      <div className="p-2">
-                        <h4 className="mb-2 text-sm font-medium">Emoji Picker</h4>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Coming soon!</div>
+                    <PopoverContent className="w-80 rounded-xl">
+                      <div className="p-3">
+                        <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-450">Emoji Reacts</h4>
+                        <div className="grid grid-cols-6 gap-1.5 pt-1">
+                          {["👍", "❤️", "😂", "😮", "😢", "🙏"].map(emoji => (
+                            <Button 
+                              key={emoji} 
+                              variant="outline" 
+                              className="h-9 w-9 p-0 text-lg hover:bg-indigo-50 hover:border-indigo-100 rounded-lg"
+                              onClick={() => {
+                                // Apply emoji reaction if any message is focused or toggle
+                                toast({
+                                  title: "Reaction Guide",
+                                  description: "Click the 3 dots on any message to react directly!",
+                                })
+                              }}
+                            >
+                              {emoji}
+                            </Button>
+                          ))}
+                        </div>
                       </div>
                     </PopoverContent>
                   </Popover>
                 </div>
-
-                <Button variant="ghost" size="icon" onClick={handleFileSelect} className="h-9 w-9 flex-shrink-0">
-                  <Paperclip className="h-5 w-5" />
+ 
+                <Button variant="ghost" size="icon" onClick={handleFileSelect} className="h-10 w-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-900 flex-shrink-0">
+                  <Paperclip className="h-5 w-5 text-slate-500" />
                   <span className="sr-only">Add attachment</span>
                 </Button>
-
+ 
                 <Input
                   placeholder="Type a message..."
                   value={message}
@@ -2606,127 +2573,134 @@ export default function ChatPage() {
                     }
                   }}
                   ref={messageInputRef}
-                  className="h-10"
+                  className="h-10 rounded-xl border-slate-200/80 bg-slate-50/50 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-0 dark:border-slate-800 dark:bg-slate-900/50 text-sm"
                 />
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={handleSendMessage}
                   disabled={!message.trim()}
-                  className="h-9 w-9 flex-shrink-0"
+                  className="h-10 w-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white flex-shrink-0 shadow-sm transition-all"
                 >
-                  <Send className="h-5 w-5" />
+                  <Send className="h-4.5 w-4.5" />
                   <span className="sr-only">Send message</span>
                 </Button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <MessageSquare className="h-12 w-12 text-gray-400 dark:text-gray-500" />
-            <h2 className="ml-4 text-2xl font-semibold text-gray-400 dark:text-gray-500">
-              Select a contact to start chatting
-            </h2>
+          <div className="flex flex-1 flex-col items-center justify-center text-center p-6 space-y-4 bg-slate-50/15 dark:bg-slate-950/5">
+            <div className="h-16 w-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+              <MessageSquare className="h-8 w-8" />
+            </div>
+            <div className="space-y-1 max-w-sm">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Start Bridging Conversations</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Select a contact from your list on the left, or add a new engineering friend by clicking Add Contact.
+              </p>
+            </div>
           </div>
         )}
       </main>
-
+ 
       {/* Media Preview Dialog */}
       <Dialog open={showMediaPreview} onOpenChange={setShowMediaPreview}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl border-slate-200 dark:border-slate-800/80 max-w-md">
           <DialogHeader>
-            <DialogTitle>Send Media</DialogTitle>
-            <DialogDescription>Preview your selected media files before sending.</DialogDescription>
+            <DialogTitle className="text-base font-bold">Send Attachment</DialogTitle>
+            <DialogDescription className="text-xs">Preview your selected media files before sending.</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="h-80">
-            <div className="flex flex-col gap-4">
+          <ScrollArea className="h-64 pr-2">
+            <div className="flex flex-col gap-3 pt-1">
               {selectedFiles.map((file, index) => {
                 const fileUrl = createObjectURL(file)
                 return (
-                  <div key={index} className="flex items-center gap-4 border rounded-md p-4">
+                  <div key={index} className="flex items-center gap-3 border border-slate-100 dark:border-slate-900 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-900/30">
                     {file.type.startsWith("image/") && (
                       <Image
                         src={fileUrl || "/placeholder.svg"}
                         alt={file.name}
-                        width={100}
-                        height={100}
-                        className="object-cover rounded-md"
+                        width={80}
+                        height={80}
+                        className="object-cover rounded-lg border dark:border-slate-800 h-16 w-16"
                       />
                     )}
                     {file.type.startsWith("video/") && (
-                      <video src={fileUrl} controls className="max-w-[100px] max-h-[100px]" />
+                      <video src={fileUrl} controls className="max-w-[80px] max-h-[80px] rounded-lg border dark:border-slate-850 h-16" />
                     )}
-                    {file.type.startsWith("audio/") && <audio src={fileUrl} controls className="max-w-[100px]" />}
+                    {file.type.startsWith("audio/") && <audio src={fileUrl} controls className="max-w-[120px] scale-90" />}
                     {!file.type.startsWith("image/") &&
                       !file.type.startsWith("video/") &&
-                      !file.type.startsWith("audio/") && <File className="h-10 w-10" />}
-                    <div>
-                      <div className="font-medium">{file.name}</div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">{(file.size / 1024).toFixed(1)} KB</div>
+                      !file.type.startsWith("audio/") && <File className="h-8 w-8 text-indigo-500" />}
+                    <div className="overflow-hidden flex-1">
+                      <div className="font-bold text-xs truncate">{file.name}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{(file.size / 1024).toFixed(1)} KB</div>
                     </div>
                   </div>
                 )
               })}
             </div>
           </ScrollArea>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="ghost" onClick={() => setShowMediaPreview(false)}>
+          <div className="flex justify-end gap-2 mt-4 pt-2 border-t border-slate-100 dark:border-slate-900">
+            <Button variant="ghost" className="rounded-xl text-xs h-9" onClick={() => setShowMediaPreview(false)}>
               Cancel
             </Button>
-            <Button onClick={() => handleSendMedia(selectedFiles)}>Send</Button>
+            <Button className="rounded-xl text-xs h-9 bg-indigo-650 text-white hover:bg-indigo-700" onClick={() => handleSendMedia(selectedFiles)}>Send Files</Button>
           </div>
         </DialogContent>
       </Dialog>
-
+ 
       {/* Add Contact Dialog */}
       <Dialog open={showAddContact} onOpenChange={setShowAddContact}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl border-slate-205 dark:border-slate-805 max-w-sm">
           <DialogHeader>
-            <DialogTitle>Add Contact</DialogTitle>
-            <DialogDescription>Enter the email address of the user you want to add as a contact.</DialogDescription>
+            <DialogTitle className="text-base font-bold">Add New Contact</DialogTitle>
+            <DialogDescription className="text-xs">Enter the email address of the user you want to add.</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="email" className="text-right">
-                Email
+          <div className="py-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="email" className="text-xs font-semibold text-slate-500">
+                Email Address
               </Label>
               <Input
                 id="email"
+                type="email"
+                placeholder="friend@outlook.com"
                 value={newContactEmail}
                 onChange={(e) => setNewContactEmail(e.target.value)}
-                className="col-span-3"
+                className="rounded-xl border-slate-200 dark:border-slate-800 focus-visible:ring-indigo-500/30"
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowAddContact(false)}>
+          <div className="flex justify-end gap-2 border-t border-slate-100 dark:border-slate-900 pt-3">
+            <Button variant="ghost" className="rounded-xl text-xs h-9" onClick={() => setShowAddContact(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddContact}>Add</Button>
+            <Button className="rounded-xl text-xs h-9 bg-indigo-650 text-white hover:bg-indigo-700" onClick={handleAddContact}>Send Invitation</Button>
           </div>
         </DialogContent>
       </Dialog>
-
+ 
       {/* Delete Message Confirmation Dialog */}
       <Dialog open={showDeleteConfirm !== null} onOpenChange={() => setShowDeleteConfirm(null)}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl max-w-xs border-slate-200 dark:border-slate-800">
           <DialogHeader>
-            <DialogTitle>Delete Message</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this message? This action cannot be undone.
+            <DialogTitle className="text-sm font-bold text-red-500">Delete Message?</DialogTitle>
+            <DialogDescription className="text-xs">
+              Are you sure? This message will be permanently removed for everyone.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end">
-            <Button variant="ghost" onClick={() => setShowDeleteConfirm(null)}>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" className="rounded-xl text-xs h-8" onClick={() => setShowDeleteConfirm(null)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={() => confirmDeleteMessage(showDeleteConfirm || "")}>
+            <Button variant="destructive" className="rounded-xl text-xs h-8" onClick={() => confirmDeleteMessage(showDeleteConfirm || "")}>
               Delete
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
+ 
       {/* Settings Dialog */}
       <SettingsDialog
         open={showSettings}
@@ -2738,97 +2712,104 @@ export default function ChatPage() {
         setNotifications={setNotifications}
         userStatus={userStatus}
         setUserStatus={setUserStatus}
+        onUserUpdate={(u) => setUser(u)}
       />
-
+ 
       {/* Delete Chat Confirmation Dialog */}
       <Dialog open={showDeleteChat} onOpenChange={() => setShowDeleteChat(false)}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl max-w-xs border-slate-205 dark:border-slate-805">
           <DialogHeader>
-            <DialogTitle>Delete Chat</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this chat? This will remove all messages in this conversation. This action
-              cannot be undone.
+            <DialogTitle className="text-sm font-bold text-red-500">Delete Conversation?</DialogTitle>
+            <DialogDescription className="text-xs">
+              This will remove all messages in this conversation. This action is irreversible.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end">
-            <Button variant="ghost" onClick={() => setShowDeleteChat(false)}>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" className="rounded-xl text-xs h-8" onClick={() => setShowDeleteChat(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteChat}>
-              Delete
+            <Button variant="destructive" className="rounded-xl text-xs h-8" onClick={handleDeleteChat}>
+              Clear History
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
+ 
       {/* Delete Contact Confirmation Dialog */}
       <Dialog open={showDeleteContact} onOpenChange={() => setShowDeleteContact(false)}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl max-w-xs border-slate-200 dark:border-slate-800">
           <DialogHeader>
-            <DialogTitle>Delete Contact</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this contact? This will remove them from your contact list.
+            <DialogTitle className="text-sm font-bold text-red-500">Remove Contact?</DialogTitle>
+            <DialogDescription className="text-xs">
+              This will remove this user from your contact list. You will need to add them again to chat.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end">
-            <Button variant="ghost" onClick={() => setShowDeleteContact(false)}>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" className="rounded-xl text-xs h-8" onClick={() => setShowDeleteContact(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteContact}>
-              Delete
+            <Button variant="destructive" className="rounded-xl text-xs h-8" onClick={handleDeleteContact}>
+              Remove
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
+ 
       {/* Profile Sheet */}
       <Sheet open={showProfile} onOpenChange={setShowProfile}>
-        <SheetContent side="right">
+        <SheetContent side="right" className="border-l border-slate-200/60 dark:border-slate-800/60 bg-white dark:bg-[#0b0f19]">
           <SheetHeader>
-            <SheetTitle>Profile</SheetTitle>
+            <SheetTitle className="text-lg font-bold">My Profile</SheetTitle>
           </SheetHeader>
-          <div className="flex h-full flex-col">
-            <div className="flex h-16 items-center border-b px-4">
-              <div className="flex items-center gap-2">
-                <div className="font-medium">{user?.name}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{user?.email}</div>
+          <div className="flex h-full flex-col pt-4">
+            <div className="flex items-center gap-3 p-4 border border-slate-100 dark:border-slate-900 rounded-2xl bg-slate-50/50 dark:bg-slate-900/30">
+              <Avatar className="h-12 w-12 border">
+                <AvatarFallback className="bg-indigo-650 text-white font-bold text-base">{getInitials(user?.name || "")}</AvatarFallback>
+              </Avatar>
+              <div className="overflow-hidden">
+                <div className="font-bold text-sm truncate">{user?.name}</div>
+                <div className="text-xs text-slate-400 truncate mt-0.5">{user?.email}</div>
               </div>
             </div>
-            <ScrollArea className="flex-1 p-4">
+            
+            <ScrollArea className="flex-1 py-4 pr-1">
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <h3 className="text-lg font-medium">Personal Information</h3>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Manage your personal information, including your name and email address.
-                  </div>
+                <div className="space-y-1 bg-slate-50/20 dark:bg-slate-900/10 p-3 rounded-xl border border-slate-100 dark:border-slate-900">
+                  <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-405 uppercase tracking-wider">Account Info</h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
+                    Manage your personal profile status and presence settings.
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input type="text" id="name" value={user?.name} disabled />
+                
+                <div className="space-y-1.5">
+                  <Label htmlFor="name" className="text-xs font-bold text-slate-500">Name</Label>
+                  <Input type="text" id="name" value={user?.name} disabled className="rounded-xl bg-slate-100 dark:bg-slate-900 border-none cursor-not-allowed" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input type="email" id="email" value={user?.email} disabled />
+                
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-bold text-slate-500">Email</Label>
+                  <Input type="email" id="email" value={user?.email} disabled className="rounded-xl bg-slate-100 dark:bg-slate-900 border-none cursor-not-allowed" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
+                
+                <div className="space-y-1.5">
+                  <Label htmlFor="status" className="text-xs font-bold text-slate-500">My Presence</Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         role="combobox"
                         aria-expanded={false}
-                        className="w-full justify-between"
+                        className="w-full justify-between rounded-xl border-slate-200 dark:border-slate-805 text-xs font-semibold h-10"
                       >
                         {STATUS_OPTIONS.find((option) => option.value === userStatus)?.label}
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[200px] p-0">
-                      <RadioGroup value={userStatus} onValueChange={setUserStatus} className="flex flex-col space-y-1">
+                    <PopoverContent className="w-[200px] p-1.5 rounded-xl border-slate-200 dark:border-slate-800">
+                      <RadioGroup value={userStatus} onValueChange={setUserStatus} className="flex flex-col space-y-0.5">
                         {STATUS_OPTIONS.map((option) => (
-                          <div key={option.value} className="flex items-center space-x-2 px-3 py-1.5">
+                          <div key={option.value} className="flex items-center space-x-2 px-2.5 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-lg cursor-pointer">
                             <RadioGroupItem value={option.value} id={option.value} className="h-4 w-4" />
-                            <Label htmlFor={option.value} className="text-sm font-normal">
+                            <Label htmlFor={option.value} className="text-xs font-medium cursor-pointer">
                               {option.label}
                             </Label>
                           </div>
@@ -2839,68 +2820,57 @@ export default function ChatPage() {
                 </div>
               </div>
             </ScrollArea>
-            <div className="border-t p-4">
-              <Button variant="outline" className="w-full justify-start gap-2" onClick={handleLogout}>
+            <div className="border-t border-slate-100 dark:border-slate-900 py-4 mt-auto">
+              <Button variant="outline" className="w-full justify-start gap-2 rounded-xl text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" />
-                Sign out
+                Sign out of VartaSetu
               </Button>
             </div>
           </div>
         </SheetContent>
       </Sheet>
-
+ 
       {/* Contact Info Sheet */}
       <Sheet open={showContactInfo} onOpenChange={setShowContactInfo}>
-        <SheetContent side="right">
+        <SheetContent side="right" className="border-l border-slate-200/60 dark:border-slate-800/60 bg-white dark:bg-[#0b0f19]">
           <SheetHeader>
-            <SheetTitle>Contact Info</SheetTitle>
+            <SheetTitle className="text-lg font-bold">Contact Info</SheetTitle>
           </SheetHeader>
-          <div className="flex h-full flex-col">
-            <div className="flex h-16 items-center border-b px-4">
-              <Button variant="ghost" size="icon" onClick={() => setShowContactInfo(false)} className="mr-2">
-                <ChevronLeft className="h-5 w-5" />
-                <span className="sr-only">Back</span>
-              </Button>
-              <div className="flex items-center gap-2">
-                <Avatar>
-                  {selectedContact?.avatar ? (
-                    <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} alt={selectedContact?.name} />
-                  ) : (
-                    <AvatarFallback>{getInitials(selectedContact?.name || "")}</AvatarFallback>
-                  )}
-                </Avatar>
-                <div>
-                  <div className="font-medium">{selectedContact?.name}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{selectedContact?.email}</div>
-                </div>
+          <div className="flex h-full flex-col pt-4">
+            <div className="flex items-center gap-3 p-4 border border-slate-100 dark:border-slate-900 rounded-2xl bg-slate-50/50 dark:bg-slate-900/30">
+              <Avatar className="h-12 w-12 border">
+                {selectedContact?.avatar ? (
+                  <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} alt={selectedContact?.name} />
+                ) : (
+                  <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 text-base font-bold">{getInitials(selectedContact?.name || "")}</AvatarFallback>
+                )}
+              </Avatar>
+              <div className="overflow-hidden">
+                <div className="font-bold text-sm truncate">{selectedContact?.name}</div>
+                <div className="text-xs text-slate-400 truncate mt-0.5">{selectedContact?.email}</div>
               </div>
             </div>
-            <ScrollArea className="flex-1 p-4">
+            
+            <ScrollArea className="flex-1 py-4 pr-1">
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <h3 className="text-lg font-medium">Contact Information</h3>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    View and manage contact information for {selectedContact?.name}.
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="name" className="text-xs font-bold text-slate-500">Name</Label>
+                  <Input type="text" id="name" value={selectedContact?.name} disabled className="rounded-xl bg-slate-100 dark:bg-slate-900 border-none cursor-not-allowed" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input type="text" id="name" value={selectedContact?.name} disabled />
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-bold text-slate-500">Email Address</Label>
+                  <Input type="email" id="email" value={selectedContact?.email} disabled className="rounded-xl bg-slate-100 dark:bg-slate-900 border-none cursor-not-allowed" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input type="email" id="email" value={selectedContact?.email} disabled />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Input type="text" id="status" value={getContactStatus(selectedContact?.contactId || "")} disabled />
+                <div className="space-y-1.5">
+                  <Label htmlFor="status" className="text-xs font-bold text-slate-500">Last Active Presence</Label>
+                  <Input type="text" id="status" value={getContactStatus(selectedContact?.contactId || "") || ""} disabled className="rounded-xl bg-slate-100 dark:bg-slate-900 border-none cursor-not-allowed font-medium" />
                 </div>
               </div>
             </ScrollArea>
-            <div className="border-t p-4">
+            <div className="border-t border-slate-100 dark:border-slate-900 py-4 mt-auto space-y-2">
               <Button
                 variant="outline"
-                className="w-full justify-start gap-2"
+                className="w-full justify-start gap-2 rounded-xl text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-955/20 text-xs font-bold"
                 onClick={() => handleBlockContact(selectedContact?.contactId || "")}
               >
                 <Shield className="h-4 w-4" />
@@ -2908,7 +2878,7 @@ export default function ChatPage() {
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start gap-2 mt-2"
+                className="w-full justify-start gap-2 rounded-xl text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-955/20 text-xs font-bold"
                 onClick={() => setShowDeleteContact(true)}
               >
                 <UserMinus className="h-4 w-4" />
@@ -2918,7 +2888,7 @@ export default function ChatPage() {
           </div>
         </SheetContent>
       </Sheet>
-
+ 
       {/* Reactions Popover */}
       <Popover open={showReactions !== null} onOpenChange={() => setShowReactions(null)}>
         <PopoverTrigger asChild>
@@ -2927,15 +2897,15 @@ export default function ChatPage() {
             <span className="sr-only">Add reaction</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-80">
-          <div className="p-2">
-            <h4 className="mb-2 text-sm font-medium">Add Reaction</h4>
-            <div className="grid grid-cols-6 gap-2">
+        <PopoverContent className="w-[280px] p-2 rounded-xl border-slate-205 dark:border-slate-805 shadow-lg">
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Add Emoji Reaction</h4>
+            <div className="grid grid-cols-6 gap-1 pt-0.5">
               {REACTIONS.map((reaction) => (
                 <Button
                   key={reaction}
                   variant="outline"
-                  className="w-full justify-center"
+                  className="h-9 w-9 p-0 text-lg hover:bg-indigo-50 hover:border-indigo-100 rounded-lg transition-all"
                   onClick={() => handleReactToMessage(showReactions || "", reaction)}
                 >
                   {reaction}
@@ -2945,62 +2915,63 @@ export default function ChatPage() {
           </div>
         </PopoverContent>
       </Popover>
-
+ 
       {/* Incoming Call Dialog */}
       <Dialog open={showIncomingCall} onOpenChange={() => setShowIncomingCall(false)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Incoming {activeCall?.type} Call</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="rounded-2xl max-w-xs border-slate-200 dark:border-slate-800 text-center">
+          <DialogHeader className="items-center">
+            <div className="h-14 w-14 rounded-full bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-center text-indigo-650 dark:text-indigo-400 mb-2 animate-pulse">
+              <Phone className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-base font-bold">Incoming {activeCall?.type} Call</DialogTitle>
+            <DialogDescription className="text-xs">
               {
-                JSON.parse(localStorage.getItem("allUsers") || "[]").find(
-                  (u: UserType) => u.id === activeCall?.callerId,
-                )?.name
+                getUserDetails(activeCall?.callerId || "")?.name || "VartaSetu User"
               }{" "}
               is calling you...
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-center gap-4 mt-4">
-            <Button variant="ghost" onClick={handleAcceptCall} className="text-green-500">
-              Accept
+          <div className="flex justify-center gap-3 mt-4 pt-3 border-t border-slate-100 dark:border-slate-900">
+            <Button size="sm" className="rounded-xl px-4 bg-green-600 hover:bg-green-700 text-white font-bold text-xs h-9" onClick={handleAcceptCall}>
+              Accept Call
             </Button>
-            <Button variant="ghost" onClick={() => handleDeclineCall(activeCall?.id || "")} className="text-red-500">
+            <Button size="sm" variant="ghost" className="rounded-xl px-4 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 font-bold text-xs h-9" onClick={() => handleDeclineCall(activeCall?.id || "")}>
               Decline
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
+ 
       {/* Call Interface */}
-      <Dialog open={showCallInterface} onOpenChange={() => setShowCallInterface(false)} className="min-w-[640px]">
-        <DialogContent className="bg-black">
-          <DialogHeader>
-            <DialogTitle className="text-white">
-              {activeCall?.type === "video" ? "Video Call" : "Audio Call"} with{" "}
-              {
-                JSON.parse(localStorage.getItem("allUsers") || "[]").find(
-                  (u: UserType) => u.id === activeCall?.receiverId,
-                )?.name
-              }
-            </DialogTitle>
-          </DialogHeader>
-          <div className="relative w-full h-[480px]">
-            {/* Local Video */}
-            {localStream && (
-              <video
-                ref={(el) => {
-                  if (el) {
-                    el.srcObject = localStream
-                  }
-                }}
-                autoPlay
-                muted
-                className="absolute bottom-4 right-4 w-48 h-36 border border-white rounded-md object-cover"
-              />
+      <Dialog open={showCallInterface} onOpenChange={() => setShowCallInterface(false)}>
+        <DialogContent className="bg-slate-950 border-slate-800 text-white rounded-3xl overflow-hidden max-w-xl p-0">
+          <div className="p-4 bg-slate-900/60 backdrop-blur border-b border-slate-800/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-red-500 animate-ping" />
+              <DialogTitle className="text-sm font-bold text-white">
+                {activeCall?.type === "video" ? "Video Call" : "Audio Call"} —{" "}
+                {
+                  getUserDetails((activeCall?.callerId === user?.id ? activeCall?.receiverId : activeCall?.callerId) || "")?.name || "VartaSetu User"
+                }
+              </DialogTitle>
+            </div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">WebRTC Peer Connection</span>
+          </div>
+          
+          <div className="relative w-full h-[360px] bg-slate-900 flex items-center justify-center overflow-hidden">
+            {activeCall?.type !== "video" && (
+              <div className="flex flex-col items-center gap-4 text-center">
+                <Avatar className="h-24 w-24 border-4 border-slate-850 shadow-2xl">
+                  <AvatarFallback className="bg-gradient-to-tr from-indigo-600 to-violet-500 text-white font-bold text-2xl">
+                    {getInitials(getUserDetails((activeCall?.callerId === user?.id ? activeCall?.receiverId : activeCall?.callerId) || "")?.name || "Call")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="text-slate-400 text-xs animate-pulse">Audio stream connected...</div>
+              </div>
             )}
 
             {/* Remote Video */}
-            {remoteStream && (
+            {activeCall?.type === "video" && remoteStream && (
               <video
                 ref={(el) => {
                   if (el) {
@@ -3011,10 +2982,33 @@ export default function ChatPage() {
                 className="w-full h-full object-cover"
               />
             )}
+
+            {activeCall?.type === "video" && !remoteStream && (
+              <div className="flex flex-col items-center gap-2 text-center text-slate-500 text-xs">
+                <Video className="h-8 w-8 animate-pulse text-indigo-500" />
+                <span>Waiting for remote camera...</span>
+              </div>
+            )}
+
+            {/* Local Video Overlay */}
+            {activeCall?.type === "video" && localStream && (
+              <video
+                ref={(el) => {
+                  if (el) {
+                    el.srcObject = localStream
+                  }
+                }}
+                autoPlay
+                muted
+                className="absolute bottom-4 right-4 w-36 h-28 border border-slate-800 rounded-xl object-cover bg-slate-950 shadow-2xl z-20"
+              />
+            )}
           </div>
-          <div className="flex justify-center gap-4 mt-4">
-            <Button variant="destructive" onClick={handleEndCall}>
-              End Call
+          
+          <div className="p-4 bg-slate-900/60 border-t border-slate-800/80 flex justify-center items-center">
+            <Button variant="destructive" className="rounded-xl font-bold px-6 shadow-lg shadow-red-950/20 text-xs" onClick={handleEndCall}>
+              <Phone className="h-4 w-4 mr-2 rotate-[135deg]" />
+              Disconnect Call
             </Button>
           </div>
         </DialogContent>

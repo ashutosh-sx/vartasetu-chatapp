@@ -86,33 +86,48 @@ export default function RegisterPage() {
     }
   }, [googleButtonRef.current, isLoading, scriptError, useFallback])
 
-  const handleGoogleSignup = (response: any) => {
+  const handleGoogleSignup = async (response: any) => {
     try {
+      setIsLoading(true)
       // Process the credential
       const userData = processGoogleCredential(response)
 
-      // Check if user already exists
-      const allUsers = JSON.parse(localStorage.getItem("allUsers") || "[]")
-      const userExists = allUsers.some((user: any) => user.email === userData.email)
+      // Sync user with PostgreSQL database
+      const res = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: userData.id,
+          name: userData.name,
+          email: userData.email,
+          avatar: userData.picture || "/default-avatar.png",
+        }),
+      })
 
-      // Save user to localStorage
-      saveUserToLocalStorage(userData)
+      const data = await res.json()
+      if (!data.success) {
+        throw new Error(data.error || "Failed to authenticate with database")
+      }
+
+      // Save user to localStorage for active session
+      localStorage.setItem("user", JSON.stringify(data.user))
 
       // Show success message
       toast({
-        title: userExists ? "Login Successful" : "Account Created",
-        description: userExists ? `Welcome back, ${userData.name}!` : `Welcome to VartaSetu, ${userData.name}!`,
+        title: "Account Created / Logged In",
+        description: `Welcome to VartaSetu, ${data.user.name}!`,
       })
 
       // Redirect to chat page
       setTimeout(() => {
         router.push("/chat")
       }, 1000)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing Google signup:", error)
+      setIsLoading(false)
       toast({
         title: "Sign Up Failed",
-        description: "There was an error signing up with Google. Please try again.",
+        description: error.message || "There was an error signing up with Google. Please try again.",
         variant: "destructive",
       })
     }
@@ -131,82 +146,99 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4 dark:from-gray-900 dark:to-gray-800">
-      <div className="w-full max-w-md">
-        {/* Find the header section in the register page and add a back button */}
-        {/* Look for the div with className="mb-8 text-center" and add this before it: */}
-        <div className="w-full flex justify-start mb-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#fafbfc] dark:bg-[#0b0f19] p-4 relative overflow-hidden transition-colors duration-300">
+      {/* Background glow orbs */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] bg-gradient-to-br from-indigo-500/10 to-violet-500/5 rounded-full blur-[80px] pointer-events-none" />
+      
+      <div className="w-full max-w-md relative z-10 space-y-6">
+        
+        {/* Back Button */}
+        <div className="w-full flex justify-start">
           <Link href="/">
-            <Button variant="ghost" size="sm" className="gap-1">
+            <Button variant="ghost" size="sm" className="gap-1.5 rounded-xl border border-slate-200/50 bg-white/50 backdrop-blur-sm hover:bg-slate-50 dark:border-slate-800/50 dark:bg-slate-900/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350 transition-all hover:-translate-x-0.5">
               <ArrowLeft className="h-4 w-4" />
               Back to Home
             </Button>
           </Link>
         </div>
-        <div className="mb-8 text-center">
-          <div className="mb-4 flex justify-center">
-            <div className="relative h-24 w-24 overflow-hidden rounded-full bg-white">
+
+        {/* Logo and Brand Header */}
+        <div className="text-center space-y-3">
+          <div className="flex justify-center">
+            <div className="relative h-20 w-20 overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-md dark:border-slate-805 dark:bg-slate-950 flex items-center justify-center">
               <Image
                 src="/vartasetu-logo-icon.jpeg"
                 alt="VartaSetu Logo"
-                width={96}
-                height={96}
-                className="object-contain"
+                width={80}
+                height={80}
+                className="object-contain p-1"
               />
             </div>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">VartaSetu</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-300">Join the conversation today</p>
+          <div className="space-y-1">
+            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 dark:from-white dark:via-indigo-100 dark:to-indigo-300 bg-clip-text text-transparent">
+              VartaSetu
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Join the conversation today</p>
+          </div>
         </div>
 
-        <Card className="border-none shadow-lg">
-          <CardHeader>
-            <CardTitle className="text-xl">Create an account</CardTitle>
-            <CardDescription>Sign up with Google to get started</CardDescription>
+        {/* Authentication Card */}
+        <Card className="border border-slate-200/60 bg-white/80 dark:border-slate-800/60 dark:bg-slate-900/40 shadow-xl backdrop-blur-md rounded-2xl overflow-hidden">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-xl font-bold">Create an account</CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Sign up with Google to get started</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col items-center">
+          <CardContent className="flex flex-col items-center pt-2">
             {isLoading && !useFallback ? (
-              <div className="flex flex-col items-center justify-center py-4">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                <p className="mt-2 text-sm text-gray-500">Loading authentication...</p>
+              <div className="flex flex-col items-center justify-center py-6">
+                <Loader2 className="h-8 w-8 animate-spin text-indigo-650" />
+                <p className="mt-3 text-xs text-slate-400">Loading secure authenticator...</p>
               </div>
             ) : scriptError && !useFallback ? (
-              <div className="text-center py-4">
-                <p className="text-red-500">{scriptError}</p>
-                <button
+              <div className="text-center py-6 space-y-3">
+                <p className="text-sm text-red-500 font-medium">{scriptError}</p>
+                <Button
+                  variant="outline"
                   onClick={() => window.location.reload()}
-                  className="mt-2 text-blue-600 hover:underline dark:text-blue-400"
+                  className="rounded-xl border-slate-200 dark:border-slate-800"
                 >
-                  Retry
-                </button>
+                  Retry Connection
+                </Button>
               </div>
             ) : useFallback ? (
-              <GoogleAuthButton onSuccess={handleGoogleSignup} text="Sign up with Google" />
+              <div className="w-full py-2">
+                <GoogleAuthButton onSuccess={handleGoogleSignup} text="Sign up with Google" />
+              </div>
             ) : (
-              <>
-                <div id="google-signup-button" ref={googleButtonRef} className="w-full flex justify-center my-4"></div>
-                <Button variant="outline" className="w-full mt-4" onClick={handleManualGoogleSignup}>
+              <div className="w-full space-y-3">
+                <div id="google-signup-button" ref={googleButtonRef} className="w-full flex justify-center py-1"></div>
+                <Button 
+                  variant="outline" 
+                  className="w-full rounded-xl border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold" 
+                  onClick={handleManualGoogleSignup}
+                >
                   Sign up with Google
                 </Button>
-              </>
+              </div>
             )}
 
-            <div className="mt-4 text-center text-sm text-gray-500">
+            <div className="mt-6 text-center text-[11px] text-slate-400 leading-relaxed max-w-[280px]">
               By continuing, you agree to our{" "}
-              <Link href="/terms" className="text-blue-600 hover:underline dark:text-blue-400">
+              <Link href="/terms" className="text-indigo-600 hover:underline dark:text-indigo-450 font-semibold">
                 Terms of Service
               </Link>{" "}
               and{" "}
-              <Link href="/privacy-policy" className="text-blue-600 hover:underline dark:text-blue-400">
+              <Link href="/privacy-policy" className="text-indigo-600 hover:underline dark:text-indigo-450 font-semibold">
                 Privacy Policy
               </Link>
               .
             </div>
           </CardContent>
-          <CardFooter className="flex flex-col space-y-4">
-            <div className="text-center text-sm">
+          <CardFooter className="flex flex-col bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-100 dark:border-slate-900 py-4">
+            <div className="text-center text-sm text-slate-550 dark:text-slate-400">
               Already have an account?{" "}
-              <Link href="/login" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
+              <Link href="/login" className="font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">
                 Sign in
               </Link>
             </div>
