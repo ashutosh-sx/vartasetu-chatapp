@@ -35,7 +35,7 @@ export default function PrivacyPolicyPage() {
       <header className="sticky top-0 z-50 w-full border-b border-slate-200/50 bg-white/70 backdrop-blur-md dark:border-slate-800/40 dark:bg-[#0b0f19]/70 transition-colors duration-300">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative h-9 w-9 overflow-hidden rounded-xl bg-gradient-to-tr from-indigo-650 to-violet-500 shadow-md flex items-center justify-center text-white">
+            <div className="relative h-9 w-9 overflow-hidden rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 shadow-md flex items-center justify-center text-white">
               <Image
                 src="/vartasetu-logo-icon.jpeg"
                 alt="VartaSetu Logo"
@@ -48,7 +48,7 @@ export default function PrivacyPolicyPage() {
               <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 dark:from-white dark:via-indigo-100 dark:to-indigo-300 bg-clip-text text-transparent">
                 VartaSetu
               </span>
-              <span className="text-[10px] text-indigo-600 dark:text-indigo-405 font-medium tracking-widest uppercase">
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium tracking-widest uppercase">
                 Privacy
               </span>
             </div>
@@ -57,18 +57,18 @@ export default function PrivacyPolicyPage() {
           <div className="flex items-center gap-4">
             <button
               onClick={toggleGlobalTheme}
-              className="p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 transition-all text-slate-500 dark:text-slate-400"
+              className="p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all text-slate-500 dark:text-slate-400"
               title="Toggle theme"
             >
               {themeMode === "light" ? <Moon className="h-4.5 w-4.5" /> : <Sun className="h-4.5 w-4.5" />}
             </button>
             <Link href="/login">
-              <Button variant="ghost" className="rounded-xl font-medium text-slate-655 dark:text-slate-350 hover:text-indigo-650">
+              <Button variant="ghost" className="rounded-xl font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600">
                 Log in
               </Button>
             </Link>
             <Link href="/register">
-              <Button className="rounded-xl font-semibold bg-indigo-650 hover:bg-indigo-700 text-white shadow-sm transition-all px-5">
+              <Button className="rounded-xl font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all px-5">
                 Launch App
               </Button>
             </Link>
@@ -82,7 +82,7 @@ export default function PrivacyPolicyPage() {
         {/* Back Link */}
         <div className="flex justify-start">
           <Link href="/">
-            <Button variant="ghost" size="sm" className="gap-1.5 rounded-xl border border-slate-200/50 bg-white/50 backdrop-blur-sm hover:bg-slate-50 dark:border-slate-800/50 dark:bg-slate-900/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-355 transition-all hover:-translate-x-0.5 shadow-sm">
+            <Button variant="ghost" size="sm" className="gap-1.5 rounded-xl border border-slate-200/50 bg-white/50 backdrop-blur-sm hover:bg-slate-50 dark:border-slate-800/50 dark:bg-slate-900/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all hover:-translate-x-0.5 shadow-sm">
               <ArrowLeft className="h-4 w-4" />
               Back to Home
             </Button>
@@ -98,7 +98,7 @@ export default function PrivacyPolicyPage() {
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight leading-tight text-slate-900 dark:text-white">
             Privacy Policy
           </h1>
-          <p className="text-xs text-slate-450 dark:text-slate-500 font-bold uppercase tracking-wider">
+          <p className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
             Last Updated: April 12, 2025
           </p>
         </div>
@@ -197,7 +197,7 @@ export default function PrivacyPolicyPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200/50 dark:border-slate-800/40 bg-white/20 dark:bg-slate-950/20 py-8 text-slate-500 dark:text-slate-450 relative z-10 transition-colors text-center text-xs space-y-3">
+      <footer className="border-t border-slate-200/50 dark:border-slate-800/40 bg-white/20 dark:bg-slate-950/20 py-8 text-slate-500 dark:text-slate-400 relative z-10 transition-colors text-center text-xs space-y-3">
         <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p>&copy; {new Date().getFullYear()} VartaSetu. All rights reserved.</p>
           <div className="flex gap-4">

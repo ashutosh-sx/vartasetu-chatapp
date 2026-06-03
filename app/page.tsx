@@ -137,13 +137,13 @@ export default function LandingPage() {
           <div className="flex items-center gap-4">
             <button
               onClick={toggleGlobalTheme}
-              className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors text-slate-500 dark:text-slate-400"
+              className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-slate-500 dark:text-slate-400"
               title="Toggle theme"
             >
               {themeMode === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             </button>
             <Link href="/login">
-              <Button variant="ghost" className="text-sm font-medium rounded-lg text-slate-600 dark:text-slate-350 hover:text-indigo-600">
+              <Button variant="ghost" className="text-sm font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:text-indigo-600">
                 Log in
               </Button>
             </Link>
@@ -169,7 +169,7 @@ export default function LandingPage() {
             <span className="text-indigo-600 dark:text-indigo-450 font-medium">crafted for clarity.</span>
           </h1>
           
-          <p className="text-base sm:text-lg text-slate-650 dark:text-slate-305 leading-relaxed max-w-2xl font-light">
+          <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl font-light">
             VartaSetu runs directly in your browser. With serverless WebRTC audio/video call pipelines and local database synchronization, your chats remain strictly yours.
           </p>
           
@@ -180,7 +180,7 @@ export default function LandingPage() {
               </Button>
             </Link>
             <Link href="/about">
-              <Button size="lg" variant="outline" className="rounded-lg font-medium border-slate-200 dark:border-slate-800 bg-transparent text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 px-6 py-5 text-sm">
+              <Button size="lg" variant="outline" className="rounded-lg font-medium border-slate-200 dark:border-slate-800 bg-transparent text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 px-6 py-5 text-sm">
                 Learn More
               </Button>
             </Link>
@@ -189,7 +189,7 @@ export default function LandingPage() {
 
         {/* Live Mockup App Preview */}
         <section className="flex justify-center w-full">
-          <div className="w-full max-w-[840px] rounded-2xl border border-slate-200/80 bg-white/60 dark:border-slate-850/80 dark:bg-slate-950/40 p-2 shadow-2xl backdrop-blur-md relative">
+          <div className="w-full max-w-[840px] rounded-2xl border border-slate-200/80 bg-white/60 dark:border-slate-800/80 dark:bg-slate-950/40 p-2 shadow-2xl backdrop-blur-md relative">
             
             {/* Window control bar */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200/40 dark:border-slate-900/60 bg-white/80 dark:bg-slate-950/60 rounded-t-xl">
@@ -235,9 +235,9 @@ export default function LandingPage() {
                     <div className="hidden sm:block flex-1 overflow-hidden">
                       <div className="text-xs font-medium truncate flex items-center justify-between">
                         <span>Priya Sharma</span>
-                        <span className="text-[9px] text-slate-450 font-normal">Active</span>
+                        <span className="text-[9px] text-slate-400 font-normal">Active</span>
                       </div>
-                      <div className="text-[10px] text-slate-450 truncate">The entire interface has...</div>
+                      <div className="text-[10px] text-slate-400 truncate">The entire interface has...</div>
                     </div>
                   </button>
 
@@ -266,7 +266,7 @@ export default function LandingPage() {
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-slate-200/40 dark:border-slate-900/60 flex items-center justify-between bg-white dark:bg-slate-950">
                   <div className="flex items-center gap-2">
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${activeContact === "priya" ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-650 dark:text-indigo-400" : "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-450"}`}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${activeContact === "priya" ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400" : "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400"}`}>
                       {activeContact === "priya" ? "PS" : "AM"}
                     </div>
                     <div>
@@ -317,7 +317,7 @@ export default function LandingPage() {
                     <button
                       key={idx}
                       onClick={() => handleSendMockMessage(suggestion)}
-                      className="text-[10px] bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-850 dark:text-slate-350 border border-slate-200/60 dark:border-slate-800 px-2 py-1 rounded-md transition-colors"
+                      className="text-[10px] bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800 px-2 py-1 rounded-md transition-colors"
                     >
                       {suggestion}
                     </button>

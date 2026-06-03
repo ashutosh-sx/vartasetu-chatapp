@@ -155,7 +155,7 @@ export default function RegisterPage() {
         {/* Back Button */}
         <div className="w-full flex justify-start">
           <Link href="/">
-            <Button variant="ghost" size="sm" className="gap-1.5 rounded-xl border border-slate-200/50 bg-white/50 backdrop-blur-sm hover:bg-slate-50 dark:border-slate-800/50 dark:bg-slate-900/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350 transition-all hover:-translate-x-0.5">
+            <Button variant="ghost" size="sm" className="gap-1.5 rounded-xl border border-slate-200/50 bg-white/50 backdrop-blur-sm hover:bg-slate-50 dark:border-slate-800/50 dark:bg-slate-900/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all hover:-translate-x-0.5">
               <ArrowLeft className="h-4 w-4" />
               Back to Home
             </Button>
@@ -165,7 +165,7 @@ export default function RegisterPage() {
         {/* Logo and Brand Header */}
         <div className="text-center space-y-3">
           <div className="flex justify-center">
-            <div className="relative h-20 w-20 overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-md dark:border-slate-805 dark:bg-slate-950 flex items-center justify-center">
+            <div className="relative h-20 w-20 overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-md dark:border-slate-800 dark:bg-slate-950 flex items-center justify-center">
               <Image
                 src="/vartasetu-logo-icon.jpeg"
                 alt="VartaSetu Logo"
@@ -192,7 +192,7 @@ export default function RegisterPage() {
           <CardContent className="flex flex-col items-center pt-2">
             {isLoading && !useFallback ? (
               <div className="flex flex-col items-center justify-center py-6">
-                <Loader2 className="h-8 w-8 animate-spin text-indigo-650" />
+                <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
                 <p className="mt-3 text-xs text-slate-400">Loading secure authenticator...</p>
               </div>
             ) : scriptError && !useFallback ? (

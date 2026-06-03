@@ -1602,7 +1602,7 @@ export default function ChatPage() {
                             <div className="font-bold text-sm">{user.name}</div>
                             {getStatusIcon(userStatus)}
                           </div>
-                          <div className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">{user.email}</div>
+                          <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">{user.email}</div>
                         </div>
                       </div>
                     </div>
@@ -1613,7 +1613,7 @@ export default function ChatPage() {
                           <TabsTrigger value="received" className="rounded-lg text-xs font-semibold relative">
                             Inbox
                             {receivedRequests.length > 0 && (
-                              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-650 text-[9px] text-white">
+                              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white">
                                 {receivedRequests.length}
                               </span>
                             )}
@@ -1638,7 +1638,7 @@ export default function ChatPage() {
                               size="icon"
                               onClick={() => setShowFilterOptions(!showFilterOptions)}
                               className={cn(
-                                "h-9 w-9 rounded-xl border border-slate-200/50 dark:border-slate-850",
+                                "h-9 w-9 rounded-xl border border-slate-200/50 dark:border-slate-800",
                                 (filterOptions.showOnlineOnly || filterOptions.sortBy !== "recent") &&
                                   "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20",
                               )}
@@ -1673,19 +1673,19 @@ export default function ChatPage() {
                                   className="flex flex-col space-y-1"
                                 >
                                   <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="recent" id="recent" className="text-indigo-650" />
+                                    <RadioGroupItem value="recent" id="recent" className="text-indigo-600" />
                                     <Label htmlFor="recent" className="text-xs font-medium cursor-pointer">
                                       Recent messages
                                     </Label>
                                   </div>
                                   <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="name" id="name" className="text-indigo-650" />
+                                    <RadioGroupItem value="name" id="name" className="text-indigo-600" />
                                     <Label htmlFor="name" className="text-xs font-medium cursor-pointer">
                                       Name
                                     </Label>
                                   </div>
                                   <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="unread" id="unread" className="text-indigo-650" />
+                                    <RadioGroupItem value="unread" id="unread" className="text-indigo-600" />
                                     <Label htmlFor="unread" className="text-xs font-medium cursor-pointer">
                                       Unread messages
                                     </Label>
@@ -1723,7 +1723,7 @@ export default function ChatPage() {
                                     }}
                                   >
                                     <div className="relative">
-                                      <Avatar className="h-9 w-9 border border-slate-205 dark:border-slate-805">
+                                      <Avatar className="h-9 w-9 border border-slate-200 dark:border-slate-800">
                                         {contact.avatar ? (
                                           <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                         ) : (
@@ -1739,7 +1739,7 @@ export default function ChatPage() {
                                         <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">{contact.name}</div>
                                         <div className="text-[10px] text-slate-400">{contact.time}</div>
                                       </div>
-                                      <div className="text-[11px] text-slate-450 dark:text-slate-500 truncate mt-0.5">
+                                      <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
                                         {isContactTyping(contact.contactId) ? (
                                           <span className="text-indigo-600 dark:text-indigo-400 italic">typing...</span>
                                         ) : (
@@ -1865,7 +1865,7 @@ export default function ChatPage() {
                                         {contact.avatar ? (
                                           <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                         ) : (
-                                          <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
+                                          <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                         )}
                                       </Avatar>
                                     </div>
@@ -1900,7 +1900,7 @@ export default function ChatPage() {
                                 blockedContacts.map((contact) => (
                                   <div
                                     key={contact.id}
-                                    className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-105 bg-slate-50/30 dark:border-slate-905 dark:bg-slate-955/20"
+                                    className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-100 bg-slate-50/30 dark:border-slate-900 dark:bg-slate-950/20"
                                   >
                                     <div className="relative">
                                       <Avatar className="h-8 w-8">
@@ -1919,7 +1919,7 @@ export default function ChatPage() {
                                       variant="outline"
                                       size="sm"
                                       onClick={() => handleUnblockContact(contact.contactId)}
-                                      className="text-xs rounded-xl border-slate-205 dark:border-slate-805 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+                                      className="text-xs rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                                     >
                                       Unblock
                                     </Button>
@@ -1940,7 +1940,7 @@ export default function ChatPage() {
               </Sheet>
             )}
             <div className="flex items-center gap-2">
-              <div className="relative h-9 w-9 overflow-hidden rounded-xl bg-gradient-to-tr from-indigo-650 to-violet-500 shadow-sm flex items-center justify-center text-white">
+              <div className="relative h-9 w-9 overflow-hidden rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 shadow-sm flex items-center justify-center text-white">
                 <Image
                   src="/vartasetu-logo-icon.jpeg"
                   alt="VartaSetu Logo"
@@ -1963,7 +1963,7 @@ export default function ChatPage() {
               <Settings className="h-5 w-5" />
               <span className="sr-only">Settings</span>
             </Button>
-            <Button variant="ghost" size="icon" className="rounded-xl text-red-500 hover:text-red-650 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={handleLogout} title="Log Out">
+            <Button variant="ghost" size="icon" className="rounded-xl text-red-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={handleLogout} title="Log Out">
               <LogOut className="h-5 w-5" />
               <span className="sr-only">Log out</span>
             </Button>
@@ -1982,7 +1982,7 @@ export default function ChatPage() {
                       <div className="font-bold text-sm">{user.name}</div>
                       {getStatusIcon(userStatus)}
                     </div>
-                    <div className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">{user.email}</div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">{user.email}</div>
                   </div>
                 </div>
               </div>
@@ -1993,7 +1993,7 @@ export default function ChatPage() {
                     <TabsTrigger value="received" className="rounded-lg text-xs font-semibold relative">
                       Inbox
                       {receivedRequests.length > 0 && (
-                        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-650 text-[9px] text-white">
+                        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white">
                           {receivedRequests.length}
                         </span>
                       )}
@@ -2005,7 +2005,7 @@ export default function ChatPage() {
                   <TabsContent value="chats" className="flex flex-col flex-1 overflow-hidden m-0">
                     <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-900 p-3">
                       <div className="relative w-full">
-                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-450 dark:text-slate-650" />
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400 dark:text-slate-600" />
                         <Input
                           placeholder="Search contacts..."
                           className="h-9 pl-8.5 rounded-xl border-slate-200 bg-slate-50/50 focus-visible:ring-indigo-500/30 dark:border-slate-800 dark:bg-slate-900/50"
@@ -2018,7 +2018,7 @@ export default function ChatPage() {
                         size="icon"
                         onClick={() => setShowFilterOptions(!showFilterOptions)}
                         className={cn(
-                          "h-9 w-9 rounded-xl border border-slate-200/50 dark:border-slate-850",
+                          "h-9 w-9 rounded-xl border border-slate-200/50 dark:border-slate-800",
                           (filterOptions.showOnlineOnly || filterOptions.sortBy !== "recent") &&
                             "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20",
                         )}
@@ -2053,19 +2053,19 @@ export default function ChatPage() {
                             className="flex flex-col space-y-1"
                           >
                             <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="recent" id="recent" className="text-indigo-650" />
+                              <RadioGroupItem value="recent" id="recent" className="text-indigo-600" />
                               <Label htmlFor="recent" className="text-xs font-medium cursor-pointer">
                                 Recent messages
                               </Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="name" id="name" className="text-indigo-650" />
+                              <RadioGroupItem value="name" id="name" className="text-indigo-600" />
                               <Label htmlFor="name" className="text-xs font-medium cursor-pointer">
                                 Name
                               </Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="unread" id="unread" className="text-indigo-650" />
+                              <RadioGroupItem value="unread" id="unread" className="text-indigo-600" />
                               <Label htmlFor="unread" className="text-xs font-medium cursor-pointer">
                                 Unread messages
                               </Label>
@@ -2102,7 +2102,7 @@ export default function ChatPage() {
                               }}
                             >
                               <div className="relative">
-                                <Avatar className="h-9 w-9 border border-slate-205 dark:border-slate-805">
+                                <Avatar className="h-9 w-9 border border-slate-200 dark:border-slate-800">
                                   {contact.avatar ? (
                                     <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                   ) : (
@@ -2118,7 +2118,7 @@ export default function ChatPage() {
                                   <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">{contact.name}</div>
                                   <div className="text-[10px] text-slate-400">{contact.time}</div>
                                 </div>
-                                <div className="text-[11px] text-slate-450 dark:text-slate-500 truncate mt-0.5">
+                                <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
                                   {isContactTyping(contact.contactId) ? (
                                     <span className="text-indigo-600 dark:text-indigo-400 italic">typing...</span>
                                   ) : (
@@ -2162,7 +2162,7 @@ export default function ChatPage() {
                               </div>
                               <div className="flex-1 overflow-hidden">
                                 <div className="font-semibold text-xs truncate">{contact.name}</div>
-                                <div className="text-[10px] text-slate-450 dark:text-slate-550 truncate">{contact.email}</div>
+                                <div className="text-[10px] text-slate-400 dark:text-slate-550 truncate">{contact.email}</div>
                               </div>
                               <div className="flex gap-1">
                                 <TooltipProvider>
@@ -2237,14 +2237,14 @@ export default function ChatPage() {
                           sentRequests.map((contact) => (
                             <div
                               key={contact.id}
-                              className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-105 bg-slate-50/30 dark:border-slate-905 dark:bg-slate-955/20"
+                              className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left border border-slate-100 bg-slate-50/30 dark:border-slate-900 dark:bg-slate-950/20"
                             >
                               <div className="relative">
                                 <Avatar className="h-8 w-8">
                                   {contact.avatar ? (
                                     <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                   ) : (
-                                    <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
+                                    <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                   )}
                                 </Avatar>
                               </div>
@@ -2286,7 +2286,7 @@ export default function ChatPage() {
                                   {contact.avatar ? (
                                     <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
                                   ) : (
-                                    <AvatarFallback className="bg-slate-105 text-slate-600 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
+                                    <AvatarFallback className="bg-slate-100 text-slate-600 text-xs font-bold">{getInitials(contact.name)}</AvatarFallback>
                                   )}
                                 </Avatar>
                               </div>
@@ -2339,7 +2339,7 @@ export default function ChatPage() {
                 </Avatar>
                 <div>
                   <div className="font-bold text-slate-900 dark:text-white text-sm">{selectedContact.name}</div>
-                  <div className="text-[10px] text-slate-450 dark:text-slate-500 font-medium">
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
                     {getContactStatus(selectedContact.contactId)}
                   </div>
                 </div>
@@ -2432,7 +2432,7 @@ export default function ChatPage() {
                             "relative rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm shadow-sm break-words leading-relaxed",
                             msg.senderId === user.id
                               ? "bg-indigo-600 text-white rounded-br-none shadow-indigo-500/5"
-                              : "bg-white dark:bg-slate-850 dark:text-white border border-slate-200/40 dark:border-slate-800/85 rounded-bl-none shadow-slate-100/5",
+                              : "bg-white dark:bg-slate-800 dark:text-white border border-slate-200/40 dark:border-slate-800/85 rounded-bl-none shadow-slate-100/5",
                           )}
                         >
                           {editingMessage === msg.id ? (
@@ -2494,7 +2494,7 @@ export default function ChatPage() {
                               })}
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-1 text-[9px] text-slate-450 dark:text-slate-500 px-1">
+                        <div className="flex items-center gap-1.5 mt-1 text-[9px] text-slate-400 dark:text-slate-500 px-1">
                           {msg.senderId === user.id && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -2626,7 +2626,7 @@ export default function ChatPage() {
                       />
                     )}
                     {file.type.startsWith("video/") && (
-                      <video src={fileUrl} controls className="max-w-[80px] max-h-[80px] rounded-lg border dark:border-slate-850 h-16" />
+                      <video src={fileUrl} controls className="max-w-[80px] max-h-[80px] rounded-lg border dark:border-slate-800 h-16" />
                     )}
                     {file.type.startsWith("audio/") && <audio src={fileUrl} controls className="max-w-[120px] scale-90" />}
                     {!file.type.startsWith("image/") &&
@@ -2645,14 +2645,14 @@ export default function ChatPage() {
             <Button variant="ghost" className="rounded-xl text-xs h-9" onClick={() => setShowMediaPreview(false)}>
               Cancel
             </Button>
-            <Button className="rounded-xl text-xs h-9 bg-indigo-650 text-white hover:bg-indigo-700" onClick={() => handleSendMedia(selectedFiles)}>Send Files</Button>
+            <Button className="rounded-xl text-xs h-9 bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => handleSendMedia(selectedFiles)}>Send Files</Button>
           </div>
         </DialogContent>
       </Dialog>
  
       {/* Add Contact Dialog */}
       <Dialog open={showAddContact} onOpenChange={setShowAddContact}>
-        <DialogContent className="rounded-2xl border-slate-205 dark:border-slate-805 max-w-sm">
+        <DialogContent className="rounded-2xl border-slate-200 dark:border-slate-800 max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-base font-bold">Add New Contact</DialogTitle>
             <DialogDescription className="text-xs">Enter the email address of the user you want to add.</DialogDescription>
@@ -2676,7 +2676,7 @@ export default function ChatPage() {
             <Button variant="ghost" className="rounded-xl text-xs h-9" onClick={() => setShowAddContact(false)}>
               Cancel
             </Button>
-            <Button className="rounded-xl text-xs h-9 bg-indigo-650 text-white hover:bg-indigo-700" onClick={handleAddContact}>Send Invitation</Button>
+            <Button className="rounded-xl text-xs h-9 bg-indigo-600 text-white hover:bg-indigo-700" onClick={handleAddContact}>Send Invitation</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -2717,7 +2717,7 @@ export default function ChatPage() {
  
       {/* Delete Chat Confirmation Dialog */}
       <Dialog open={showDeleteChat} onOpenChange={() => setShowDeleteChat(false)}>
-        <DialogContent className="rounded-2xl max-w-xs border-slate-205 dark:border-slate-805">
+        <DialogContent className="rounded-2xl max-w-xs border-slate-200 dark:border-slate-800">
           <DialogHeader>
             <DialogTitle className="text-sm font-bold text-red-500">Delete Conversation?</DialogTitle>
             <DialogDescription className="text-xs">
@@ -2764,7 +2764,7 @@ export default function ChatPage() {
           <div className="flex h-full flex-col pt-4">
             <div className="flex items-center gap-3 p-4 border border-slate-100 dark:border-slate-900 rounded-2xl bg-slate-50/50 dark:bg-slate-900/30">
               <Avatar className="h-12 w-12 border">
-                <AvatarFallback className="bg-indigo-650 text-white font-bold text-base">{getInitials(user?.name || "")}</AvatarFallback>
+                <AvatarFallback className="bg-indigo-600 text-white font-bold text-base">{getInitials(user?.name || "")}</AvatarFallback>
               </Avatar>
               <div className="overflow-hidden">
                 <div className="font-bold text-sm truncate">{user?.name}</div>
@@ -2775,7 +2775,7 @@ export default function ChatPage() {
             <ScrollArea className="flex-1 py-4 pr-1">
               <div className="space-y-4">
                 <div className="space-y-1 bg-slate-50/20 dark:bg-slate-900/10 p-3 rounded-xl border border-slate-100 dark:border-slate-900">
-                  <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-405 uppercase tracking-wider">Account Info</h4>
+                  <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Account Info</h4>
                   <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
                     Manage your personal profile status and presence settings.
                   </p>
@@ -2799,7 +2799,7 @@ export default function ChatPage() {
                         variant="outline"
                         role="combobox"
                         aria-expanded={false}
-                        className="w-full justify-between rounded-xl border-slate-200 dark:border-slate-805 text-xs font-semibold h-10"
+                        className="w-full justify-between rounded-xl border-slate-200 dark:border-slate-800 text-xs font-semibold h-10"
                       >
                         {STATUS_OPTIONS.find((option) => option.value === userStatus)?.label}
                       </Button>
@@ -2842,7 +2842,7 @@ export default function ChatPage() {
                 {selectedContact?.avatar ? (
                   <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} alt={selectedContact?.name} />
                 ) : (
-                  <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-650 text-base font-bold">{getInitials(selectedContact?.name || "")}</AvatarFallback>
+                  <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 text-base font-bold">{getInitials(selectedContact?.name || "")}</AvatarFallback>
                 )}
               </Avatar>
               <div className="overflow-hidden">
@@ -2870,7 +2870,7 @@ export default function ChatPage() {
             <div className="border-t border-slate-100 dark:border-slate-900 py-4 mt-auto space-y-2">
               <Button
                 variant="outline"
-                className="w-full justify-start gap-2 rounded-xl text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-955/20 text-xs font-bold"
+                className="w-full justify-start gap-2 rounded-xl text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/20 text-xs font-bold"
                 onClick={() => handleBlockContact(selectedContact?.contactId || "")}
               >
                 <Shield className="h-4 w-4" />
@@ -2878,7 +2878,7 @@ export default function ChatPage() {
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start gap-2 rounded-xl text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-955/20 text-xs font-bold"
+                className="w-full justify-start gap-2 rounded-xl text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs font-bold"
                 onClick={() => setShowDeleteContact(true)}
               >
                 <UserMinus className="h-4 w-4" />
@@ -2897,7 +2897,7 @@ export default function ChatPage() {
             <span className="sr-only">Add reaction</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[280px] p-2 rounded-xl border-slate-205 dark:border-slate-805 shadow-lg">
+        <PopoverContent className="w-[280px] p-2 rounded-xl border-slate-200 dark:border-slate-800 shadow-lg">
           <div className="space-y-2">
             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Add Emoji Reaction</h4>
             <div className="grid grid-cols-6 gap-1 pt-0.5">
@@ -2920,7 +2920,7 @@ export default function ChatPage() {
       <Dialog open={showIncomingCall} onOpenChange={() => setShowIncomingCall(false)}>
         <DialogContent className="rounded-2xl max-w-xs border-slate-200 dark:border-slate-800 text-center">
           <DialogHeader className="items-center">
-            <div className="h-14 w-14 rounded-full bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-center text-indigo-650 dark:text-indigo-400 mb-2 animate-pulse">
+            <div className="h-14 w-14 rounded-full bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-2 animate-pulse">
               <Phone className="h-6 w-6" />
             </div>
             <DialogTitle className="text-base font-bold">Incoming {activeCall?.type} Call</DialogTitle>
@@ -2961,7 +2961,7 @@ export default function ChatPage() {
           <div className="relative w-full h-[360px] bg-slate-900 flex items-center justify-center overflow-hidden">
             {activeCall?.type !== "video" && (
               <div className="flex flex-col items-center gap-4 text-center">
-                <Avatar className="h-24 w-24 border-4 border-slate-850 shadow-2xl">
+                <Avatar className="h-24 w-24 border-4 border-slate-800 shadow-2xl">
                   <AvatarFallback className="bg-gradient-to-tr from-indigo-600 to-violet-500 text-white font-bold text-2xl">
                     {getInitials(getUserDetails((activeCall?.callerId === user?.id ? activeCall?.receiverId : activeCall?.callerId) || "")?.name || "Call")}
                   </AvatarFallback>
