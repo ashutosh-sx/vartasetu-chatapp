@@ -1628,7 +1628,7 @@ export default function ChatPage() {
                       </div>
                     </div>
                     <div className="flex flex-1 flex-col overflow-hidden">
-                      <Tabs defaultValue="chats" className="w-full flex flex-col h-full" onValueChange={setActiveTab}>
+                      <Tabs defaultValue="chats" className="w-full flex flex-col flex-1 min-h-0" onValueChange={setActiveTab}>
                         <TabsList className="grid w-full grid-cols-4 bg-slate-100/60 dark:bg-slate-900/60 p-1 rounded-xl mx-2 my-2 w-[calc(100%-16px)]">
                           <TabsTrigger value="chats" className="rounded-lg text-xs font-semibold">Chats</TabsTrigger>
                           <TabsTrigger value="received" className="rounded-lg text-xs font-semibold relative">
@@ -1642,8 +1642,8 @@ export default function ChatPage() {
                           <TabsTrigger value="sent" className="rounded-lg text-xs font-semibold">Sent</TabsTrigger>
                           <TabsTrigger value="blocked" className="rounded-lg text-xs font-semibold">Blocked</TabsTrigger>
                         </TabsList>
- 
-                        <TabsContent value="chats" className="flex flex-col flex-1 overflow-hidden m-0">
+
+                        <TabsContent value="chats" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
                           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-900 p-3">
                             <div className="relative w-full">
                               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400 dark:text-slate-600" />
@@ -1726,7 +1726,7 @@ export default function ChatPage() {
                               Add Contact
                             </Button>
                           </div>
-                          <ScrollArea className="flex-1 custom-scrollbar">
+                          <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                             <div className="p-2 space-y-1">
                               {filteredContacts.length > 0 ? (
                                 filteredContacts.map((contact) => (
@@ -1784,8 +1784,8 @@ export default function ChatPage() {
                           </ScrollArea>
                         </TabsContent>
  
-                        <TabsContent value="received" className="flex flex-col flex-1 overflow-hidden m-0">
-                          <ScrollArea className="flex-1 custom-scrollbar">
+                        <TabsContent value="received" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                          <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                             <div className="p-2 space-y-1">
                               {receivedRequests.length > 0 ? (
                                 receivedRequests.map((contact) => (
@@ -1872,8 +1872,8 @@ export default function ChatPage() {
                           </ScrollArea>
                         </TabsContent>
  
-                        <TabsContent value="sent" className="flex flex-col flex-1 overflow-hidden m-0">
-                          <ScrollArea className="flex-1 custom-scrollbar">
+                        <TabsContent value="sent" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                          <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                             <div className="p-2 space-y-1">
                               {sentRequests.length > 0 ? (
                                 sentRequests.map((contact) => (
@@ -1914,8 +1914,8 @@ export default function ChatPage() {
                           </ScrollArea>
                         </TabsContent>
  
-                        <TabsContent value="blocked" className="flex flex-col flex-1 overflow-hidden m-0">
-                          <ScrollArea className="flex-1 custom-scrollbar">
+                        <TabsContent value="blocked" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                          <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                             <div className="p-2 space-y-1">
                               {blockedContacts.length > 0 ? (
                                 blockedContacts.map((contact) => (
@@ -2008,7 +2008,7 @@ export default function ChatPage() {
                 </div>
               </div>
               <div className="flex flex-1 flex-col overflow-hidden">
-                <Tabs defaultValue="chats" className="w-full flex flex-col h-full" onValueChange={setActiveTab}>
+                <Tabs defaultValue="chats" className="w-full flex flex-col flex-1 min-h-0" onValueChange={setActiveTab}>
                   <TabsList className="grid w-full grid-cols-4 bg-slate-100/60 dark:bg-slate-900/60 p-1 rounded-xl mx-2 my-2 w-[calc(100%-16px)]">
                     <TabsTrigger value="chats" className="rounded-lg text-xs font-semibold">Chats</TabsTrigger>
                     <TabsTrigger value="received" className="rounded-lg text-xs font-semibold relative">
@@ -2022,8 +2022,8 @@ export default function ChatPage() {
                     <TabsTrigger value="sent" className="rounded-lg text-xs font-semibold">Sent</TabsTrigger>
                     <TabsTrigger value="blocked" className="rounded-lg text-xs font-semibold">Blocked</TabsTrigger>
                   </TabsList>
- 
-                  <TabsContent value="chats" className="flex flex-col flex-1 overflow-hidden m-0">
+
+                  <TabsContent value="chats" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
                     <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-900 p-3">
                       <div className="relative w-full">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400 dark:text-slate-600" />
@@ -2106,7 +2106,7 @@ export default function ChatPage() {
                         Add Contact
                       </Button>
                     </div>
-                    <ScrollArea className="flex-1 custom-scrollbar">
+                    <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                       <div className="p-2 space-y-1">
                         {filteredContacts.length > 0 ? (
                           filteredContacts.map((contact) => (
@@ -2163,8 +2163,8 @@ export default function ChatPage() {
                     </ScrollArea>
                   </TabsContent>
  
-                  <TabsContent value="received" className="flex flex-col flex-1 overflow-hidden m-0">
-                    <ScrollArea className="flex-1 custom-scrollbar">
+                  <TabsContent value="received" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                    <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                       <div className="p-2 space-y-1">
                         {receivedRequests.length > 0 ? (
                           receivedRequests.map((contact) => (
@@ -2251,8 +2251,8 @@ export default function ChatPage() {
                     </ScrollArea>
                   </TabsContent>
  
-                  <TabsContent value="sent" className="flex flex-col flex-1 overflow-hidden m-0">
-                    <ScrollArea className="flex-1 custom-scrollbar">
+                  <TabsContent value="sent" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                    <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                       <div className="p-2 space-y-1">
                         {sentRequests.length > 0 ? (
                           sentRequests.map((contact) => (
@@ -2293,8 +2293,8 @@ export default function ChatPage() {
                     </ScrollArea>
                   </TabsContent>
  
-                  <TabsContent value="blocked" className="flex flex-col flex-1 overflow-hidden m-0">
-                    <ScrollArea className="flex-1 custom-scrollbar">
+                  <TabsContent value="blocked" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                    <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                       <div className="p-2 space-y-1">
                         {blockedContacts.length > 0 ? (
                           blockedContacts.map((contact) => (
