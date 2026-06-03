@@ -1643,7 +1643,7 @@ export default function ChatPage() {
                           <TabsTrigger value="blocked" className="rounded-lg text-xs font-semibold">Blocked</TabsTrigger>
                         </TabsList>
 
-                        <TabsContent value="chats" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                        <TabsContent value="chats" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-900 p-3">
                             <div className="relative w-full">
                               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400 dark:text-slate-600" />
@@ -1784,7 +1784,7 @@ export default function ChatPage() {
                           </ScrollArea>
                         </TabsContent>
  
-                        <TabsContent value="received" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                        <TabsContent value="received" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                           <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                             <div className="p-2 space-y-1">
                               {receivedRequests.length > 0 ? (
@@ -1872,7 +1872,7 @@ export default function ChatPage() {
                           </ScrollArea>
                         </TabsContent>
  
-                        <TabsContent value="sent" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                        <TabsContent value="sent" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                           <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                             <div className="p-2 space-y-1">
                               {sentRequests.length > 0 ? (
@@ -1914,7 +1914,7 @@ export default function ChatPage() {
                           </ScrollArea>
                         </TabsContent>
  
-                        <TabsContent value="blocked" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                        <TabsContent value="blocked" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                           <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                             <div className="p-2 space-y-1">
                               {blockedContacts.length > 0 ? (
@@ -2023,7 +2023,7 @@ export default function ChatPage() {
                     <TabsTrigger value="blocked" className="rounded-lg text-xs font-semibold">Blocked</TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value="chats" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                  <TabsContent value="chats" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                     <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-900 p-3">
                       <div className="relative w-full">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400 dark:text-slate-600" />
@@ -2163,7 +2163,7 @@ export default function ChatPage() {
                     </ScrollArea>
                   </TabsContent>
  
-                  <TabsContent value="received" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                  <TabsContent value="received" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                     <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                       <div className="p-2 space-y-1">
                         {receivedRequests.length > 0 ? (
@@ -2251,7 +2251,7 @@ export default function ChatPage() {
                     </ScrollArea>
                   </TabsContent>
  
-                  <TabsContent value="sent" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                  <TabsContent value="sent" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                     <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                       <div className="p-2 space-y-1">
                         {sentRequests.length > 0 ? (
@@ -2293,7 +2293,7 @@ export default function ChatPage() {
                     </ScrollArea>
                   </TabsContent>
  
-                  <TabsContent value="blocked" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+                  <TabsContent value="blocked" className="data-[state=active]:!flex data-[state=active]:!flex-col data-[state=active]:!flex-1 data-[state=active]:!min-h-0 overflow-hidden m-0">
                     <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                       <div className="p-2 space-y-1">
                         {blockedContacts.length > 0 ? (
