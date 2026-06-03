@@ -10,8 +10,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: "Missing userId parameter." }, { status: 400 })
     }
 
-    // Get all contacts of the user and join the peer user details
-    const contactsList = await query(
+    // Get all user relationships from contacts table
+    const relationships = await query(
       `SELECT c.id, c.user_id as "userId", c.contact_id as "contactId", c.status,
               u.name, u.email, u.avatar, u.online, u.status as "userStatus", u.last_seen as "lastSeen", u.typing
        FROM contacts c
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       [userId]
     )
 
-    const mappedContacts = contactsList.map((c: any) => {
+    const mappedRelationships = relationships.map((c: any) => {
       let isTyping = false
       if (c.typing) {
         const typingObj = typeof c.typing === "string" ? JSON.parse(c.typing) : c.typing
@@ -41,12 +41,13 @@ export async function GET(request: Request) {
       }
     })
 
-    // Parse the lists into their corresponding statuses for the frontend
-    // Frontend expects structured Contact arrays
-    const contacts = mappedContacts.filter((c: any) => c.status === "accepted")
-    const sentRequests = mappedContacts.filter((c: any) => c.status === "sent")
-    const receivedRequests = mappedContacts.filter((c: any) => c.status === "pending")
-    const blockedContacts = mappedContacts.filter((c: any) => c.status === "blocked")
+    // Contacts displayed under Chats list are those with accepted, sent, or pending status
+    const contacts = mappedRelationships.filter(
+      (c: any) => c.status === "accepted" || c.status === "sent" || c.status === "pending"
+    )
+    const sentRequests = mappedRelationships.filter((c: any) => c.status === "sent")
+    const receivedRequests = mappedRelationships.filter((c: any) => c.status === "pending")
+    const blockedContacts = mappedRelationships.filter((c: any) => c.status === "blocked")
 
     return NextResponse.json({
       success: true,

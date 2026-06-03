@@ -221,6 +221,15 @@ export default function ChatPage() {
               ? [...conversationMessages].sort((a: Message, b: Message) => b.timestamp - a.timestamp)[0]
               : null
 
+          let defaultLastMsg = contact.lastMessage
+          if (!lastMsg) {
+            if (contact.status === "sent") {
+              defaultLastMsg = "Invitation sent"
+            } else if (contact.status === "pending") {
+              defaultLastMsg = "Incoming request"
+            }
+          }
+
           return {
             ...contact,
             unread: contactMessages.length,
@@ -228,7 +237,7 @@ export default function ChatPage() {
               ? lastMsg.type === "text"
                 ? lastMsg.text
                 : `Sent ${lastMsg.type}`
-              : contact.lastMessage,
+              : defaultLastMsg,
             time: lastMsg ? formatTimeRelative(lastMsg.timestamp) : contact.time,
           }
         })
@@ -370,7 +379,19 @@ export default function ChatPage() {
       const res = await fetch(`/api/contacts?userId=${encodeURIComponent(userId)}`)
       const data = await res.json()
       if (data.success) {
-        setContacts(data.contacts || [])
+        const rawContacts = data.contacts || []
+        const mapped = rawContacts.map((c: any) => {
+          let lastMsg = c.lastMessage
+          if (!lastMsg) {
+            if (c.status === "sent") {
+              lastMsg = "Invitation sent"
+            } else if (c.status === "pending") {
+              lastMsg = "Incoming request"
+            }
+          }
+          return { ...c, lastMessage: lastMsg }
+        })
+        setContacts(mapped)
         setSentRequests(data.sentRequests || [])
         setReceivedRequests(data.receivedRequests || [])
         setBlockedContacts(data.blockedContacts || [])
